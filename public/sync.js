@@ -74,18 +74,15 @@ window.GespoSync = (() => {
     return res;
   }
 
-  const empty = () => ({ projects: [], subtasks: [], sessions: [], notes: [] });
-
   // Latest version of the file, or `current` when it hasn't changed.
   async function fetchLatest(config) {
     const headers = current && current.etag ? { 'If-None-Match': current.etag } : {};
     const res = await github('GET', config, { headers });
     if (res.status === 304) return current;
+    // A key without the Contents permission also gets a 404 here, so a
+    // missing file must never be read as "no projects yet".
     if (res.status === 404) {
-      if (!current) current = { sha: null, etag: null, data: empty() };
-      const repoRes = await fetch(`https://api.github.com/repos/${config.repo}`, { headers: { Authorization: `Bearer ${config.token}` } });
-      if (!repoRes.ok) throw new Error(`Dépôt « ${config.repo} » introuvable ou inaccessible avec cette clé.`);
-      return current;
+      throw new Error(`Données introuvables dans « ${config.repo} ». Vérifie que la clé a accès à ce dépôt avec la permission « Contents : Read and write ».`);
     }
     if (!res.ok) throw new Error(`Lecture GitHub impossible (HTTP ${res.status}).`);
     const file = await res.json();
