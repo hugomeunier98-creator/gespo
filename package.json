@@ -1,0 +1,14 @@
+{
+  "name": "gespo",
+  "version": "1.0.0",
+  "description": "Gespo - gestionnaire de projets local avec stockage .xlsx",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "exceljs": "^4.4.0",
+    "uuid": "^9.0.1"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+# Project data stays out of this public repository: it is synced through the
+# private gespo-data repository instead.
+data/
+*.lock
+*.log
