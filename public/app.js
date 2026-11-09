@@ -13,6 +13,7 @@
     editingProjectId: null,
     expandedProjectId: null,
     addingChildOf: null,
+    collapsed: new Set(), // IDs of tasks whose sub-tasks are hidden
     drawerTab: 'infos',
   };
 
@@ -40,6 +41,7 @@
       ['filterStatut', 'filterArchive', 'sortBy', 'chargeOpen'].forEach((k) => {
         if (prefs[k] !== undefined) state[k] = prefs[k];
       });
+      if (Array.isArray(prefs.collapsed)) state.collapsed = new Set(prefs.collapsed);
       if (prefs.theme) document.documentElement.dataset.theme = prefs.theme;
     } catch (_) { /* storage unavailable: defaults are fine */ }
   }
@@ -50,6 +52,7 @@
         filterArchive: state.filterArchive,
         sortBy: state.sortBy,
         chargeOpen: state.chargeOpen,
+        collapsed: [...state.collapsed],
         theme: document.documentElement.dataset.theme || '',
       }));
     } catch (_) { /* ignore */ }
@@ -142,6 +145,30 @@
       .sort((a, b) => key(a) - key(b))
       .map(({ s }) => s);
   }
+
+  function descendantCount(projectId, id) {
+    return childrenOf(projectId, id).reduce((n, c) => n + 1 + descendantCount(projectId, c.id), 0);
+  }
+
+  // Arrow that folds a task's sub-tasks away (with how many are hidden). A
+  // task without sub-tasks gets an empty slot instead when one of its
+  // siblings has an arrow, so their names stay aligned.
+  function treeToggleHtml(projectId, s, siblings) {
+    const hidden = descendantCount(projectId, s.id);
+    if (!hidden) {
+      return siblings.some((x) => childrenOf(projectId, x.id).length) ? '<span class="tree-toggle-slot"></span>' : '';
+    }
+    const open = !state.collapsed.has(s.id);
+    return `<button type="button" class="tree-toggle" data-toggle="${s.id}" aria-expanded="${open}" title="${open ? 'Réduire' : 'Dérouler'}">${icon('chevron-right')}</button>`;
+  }
+
+  // Shown after the name while the task is folded.
+  function treeCountHtml(projectId, s) {
+    const hidden = descendantCount(projectId, s.id);
+    return hidden ? `<span class="tree-count" title="${hidden} sous-tâche${hidden > 1 ? 's' : ''} masquée${hidden > 1 ? 's' : ''}">${hidden}</span>` : '';
+  }
+
+  const isCollapsed = (projectId, s) => state.collapsed.has(s.id) && childrenOf(projectId, s.id).length > 0;
 
   function notesOf(projectId) {
     return state.notes.filter((n) => n.projetId === projectId);
@@ -415,9 +442,11 @@
     const children = childrenOf(projectId, parentId);
     if (!children.length) return '';
     return `<ul class="tree-children">${children.map((s) => `
-        <li class="tree-node">
+        <li class="tree-node${isCollapsed(projectId, s) ? ' collapsed' : ''}">
           <div class="task-bar statut-${s.statut.toLowerCase()}">
+            ${treeToggleHtml(projectId, s, children)}
             <span class="st-name">${escapeHtml(s.nom)}</span>
+            ${treeCountHtml(projectId, s)}
             ${s.dureeJours !== '' ? `<span class="st-duration">${formatDuree(s.dureeJours, s.dureeUnite)}</span>` : ''}
             <select class="status-select pill-${s.statut.toLowerCase()}" data-subtask-id="${s.id}" aria-label="Statut de ${escapeHtml(s.nom)}">
               ${statutSelectOptions(s.statut)}
@@ -589,6 +618,24 @@
     el('search').value = '';
     savePrefs();
     renderProjects();
+  });
+
+  // ---------- Fold / unfold sub-tasks ----------
+  // One handler for the cards and the drawer: both trees show the same task,
+  // so they fold together, without re-rendering anything.
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tree-toggle');
+    if (!btn) return;
+    const id = btn.dataset.toggle;
+    const collapse = !state.collapsed.has(id);
+    if (collapse) state.collapsed.add(id);
+    else state.collapsed.delete(id);
+    savePrefs();
+    document.querySelectorAll(`.tree-toggle[data-toggle="${id}"]`).forEach((b) => {
+      b.setAttribute('aria-expanded', String(!collapse));
+      b.title = collapse ? 'Dérouler' : 'Réduire';
+      b.closest('.tree-node').classList.toggle('collapsed', collapse);
+    });
   });
 
   // ---------- Theme ----------
@@ -922,12 +969,15 @@
   // the same project > task > sub-task > section... tree as the inline view.
   function buildSubtaskNode(projectId, s, pos, siblingCount) {
     const li = document.createElement('li');
-    li.className = 'tree-node';
+    li.className = `tree-node${isCollapsed(projectId, s) ? ' collapsed' : ''}`;
+    const siblings = childrenOf(projectId, s.parentId && state.subtasks.some((x) => x.id === s.parentId) ? s.parentId : '');
     const row = document.createElement('div');
     row.className = `task-bar statut-${s.statut.toLowerCase()}`;
     row.innerHTML = `
       <div class="task-line">
+        ${treeToggleHtml(projectId, s, siblings)}
         <input type="text" class="ghost-input st-nom-input" aria-label="Nom">
+        ${treeCountHtml(projectId, s)}
         <select class="status-select pill-${s.statut.toLowerCase()} st-statut" aria-label="Statut">${statutSelectOptions(s.statut)}</select>
         <div class="task-actions">
           <button type="button" class="btn-icon sm" data-move="up" title="Monter" ${pos === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
@@ -993,6 +1043,10 @@
     });
     row.querySelector('.subtask-add-child').addEventListener('click', () => {
       state.addingChildOf = state.addingChildOf === s.id ? null : s.id;
+      if (state.addingChildOf) {
+        state.collapsed.delete(s.id);
+        savePrefs();
+      }
       renderSubtasksInModal(projectId);
     });
     row.querySelector('.subtask-remove').addEventListener('click', async () => {
