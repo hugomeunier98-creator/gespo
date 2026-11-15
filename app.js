@@ -447,6 +447,7 @@
             ${treeToggleHtml(projectId, s, children)}
             <span class="st-name">${escapeHtml(s.nom)}</span>
             ${treeCountHtml(projectId, s)}
+            ${promptButtonHtml(projectId, s)}
             ${s.dureeJours !== '' ? `<span class="st-duration">${formatDuree(s.dureeJours, s.dureeUnite)}</span>` : ''}
             <select class="status-select pill-${s.statut.toLowerCase()}" data-subtask-id="${s.id}" aria-label="Statut de ${escapeHtml(s.nom)}">
               ${statutSelectOptions(s.statut)}
@@ -618,6 +619,147 @@
     el('search').value = '';
     savePrefs();
     renderProjects();
+  });
+
+  // ---------- Prompt for Claude Code ----------
+  // Builds, from what Gespo knows, a prompt asking Claude Code to carry out one
+  // task: the project, the path down to the task (with each level's detail),
+  // what the task contains, the rest of the project's outline with statuses
+  // (what's already done), recent notes, and working rules.
+  const PROMPT_MARKS = { TERMINE: '[x]', EN_COURS: '[~]', A_FAIRE: '[ ]' };
+  const PROMPT_OUTLINE_MAX_LINES = 80;
+  const PROMPT_NOTES_MAX = 5;
+
+  function ancestorsOf(projectId, s) {
+    const chain = [];
+    let cur = s;
+    while (cur.parentId) {
+      const parent = state.subtasks.find((x) => x.id === cur.parentId && x.projetId === projectId);
+      if (!parent || chain.includes(parent)) break;
+      chain.unshift(parent);
+      cur = parent;
+    }
+    return chain;
+  }
+
+  const hasDuree = (s) => s.dureeJours !== '' && s.dureeJours !== undefined && s.dureeJours !== null;
+  const promptTaskLine = (s) => `${PROMPT_MARKS[s.statut] || '[ ]'} ${s.nom}${hasDuree(s) ? ` (${formatDuree(s.dureeJours, s.dureeUnite)})` : ''}`;
+  const indentDetail = (text, pad) => text.trim().split('\n').map((l) => `${pad}  > ${l}`).join('\n');
+
+  // Sub-tasks under `parentId`, indented, with their details.
+  function promptSubtree(projectId, parentId, depth) {
+    return childrenOf(projectId, parentId).flatMap((c) => {
+      const pad = '  '.repeat(depth);
+      return [
+        `${pad}- ${promptTaskLine(c)}`,
+        ...(c.detail ? [indentDetail(c.detail, pad)] : []),
+        ...promptSubtree(projectId, c.id, depth + 1),
+      ];
+    });
+  }
+
+  // Whole project tree (names and statuses only), the target task marked.
+  function promptOutline(projectId, targetId) {
+    const lines = [];
+    const walk = (parentId, depth) => childrenOf(projectId, parentId).forEach((c) => {
+      lines.push(`${'  '.repeat(depth)}- ${promptTaskLine(c)}${c.id === targetId ? '   <-- TÂCHE À RÉALISER' : ''}`);
+      walk(c.id, depth + 1);
+    });
+    walk('', 0);
+    if (lines.length <= PROMPT_OUTLINE_MAX_LINES) return lines;
+    return [...lines.slice(0, PROMPT_OUTLINE_MAX_LINES), `- … (${lines.length - PROMPT_OUTLINE_MAX_LINES} autres tâches non listées)`];
+  }
+
+  function buildTaskPrompt(projectId, taskId) {
+    const p = state.projects.find((x) => x.id === projectId);
+    const task = state.subtasks.find((x) => x.id === taskId);
+    if (!p || !task) throw new Error('Tâche introuvable : recharge la page.');
+    const ancestors = ancestorsOf(projectId, task);
+    const children = childrenOf(projectId, task.id);
+    const remaining = children.filter((c) => c.statut !== 'TERMINE');
+    const out = [];
+
+    out.push(`Tu travailles sur le projet « ${p.nom} », suivi dans mon gestionnaire de projets Gespo. Réalise la tâche décrite ci-dessous.`, '');
+
+    out.push('## Projet');
+    out.push(`- Nom : ${p.nom}`);
+    if (p.description) out.push('- Description :', indentDetail(p.description, ''));
+    if (p.dossier) out.push(`- Dossier du code : ${p.dossier}`);
+    if (p.depot) out.push(`- Dépôt GitHub : ${p.depot}`);
+    if (!p.dossier && !p.depot) out.push('- Emplacement du code : non renseigné dans Gespo. Si le dossier ouvert ne correspond pas à ce projet, demande-moi où se trouve le code.');
+    out.push(`- Priorité : ${PRIORITE_LABELS[p.priorite] || p.priorite} · Statut : ${STATUT_LABELS[p.statut] || p.statut}`);
+    if (p.dateLimite) out.push(`- Échéance : ${deadlineInfo(p).label}`);
+    out.push(`- Temps : ${round2(heuresReelles(p.id))} h passées sur ${round2(toHours(p.dureeJours, p.dureeUnite))} h estimées`, '');
+
+    out.push(`## Tâche à réaliser : « ${task.nom} »`);
+    out.push(`- Emplacement : ${[p.nom, ...ancestors.map((a) => a.nom), task.nom].join(' › ')} (niveau ${ancestors.length + 1})`);
+    out.push(`- Statut actuel : ${STATUT_LABELS[task.statut] || task.statut}`);
+    if (hasDuree(task)) out.push(`- Durée estimée : ${formatDuree(task.dureeJours, task.dureeUnite)}`);
+    if (task.detail) out.push('- Détail :', indentDetail(task.detail, ''));
+    else out.push('- Détail : aucun. Déduis l\'objectif du nom de la tâche et de son contexte, et demande-moi s\'il reste ambigu.');
+    const withDetail = ancestors.filter((a) => a.detail);
+    if (withDetail.length) {
+      out.push('- Contexte des niveaux supérieurs :');
+      withDetail.forEach((a) => out.push(`  - ${a.nom} :`, indentDetail(a.detail, '  ')));
+    }
+    out.push('');
+
+    if (children.length) {
+      out.push('### Sous-tâches ([x] terminé, [~] en cours, [ ] à faire)');
+      out.push(...promptSubtree(projectId, task.id, 0), '');
+      out.push(remaining.length
+        ? 'Cette tâche regroupe plusieurs sous-tâches : réalise celles qui ne sont pas terminées, dans l\'ordre. Si l\'ensemble est trop gros pour une seule session, propose-moi d\'abord un plan découpé.'
+        : 'Toutes les sous-tâches sont marquées terminées : vérifie dans le code que la tâche est bien complète et termine ce qui manquerait.', '');
+    } else {
+      out.push(task.statut === 'TERMINE'
+        ? 'Cette tâche est marquée terminée dans Gespo : vérifie dans le code qu\'elle l\'est vraiment et complète ce qui manquerait.'
+        : 'C\'est une action concrète : réalise-la directement.', '');
+    }
+
+    out.push('## Avancement du projet (ce qui a déjà été fait)');
+    out.push('Arborescence complète des tâches, d\'après Gespo ([x] terminé, [~] en cours, [ ] à faire) :');
+    out.push(...promptOutline(projectId, task.id), '');
+
+    const notes = notesOf(projectId).slice().reverse().slice(0, PROMPT_NOTES_MAX);
+    if (notes.length) {
+      out.push('## Notes du projet (les plus récentes)');
+      notes.forEach((n) => out.push(`- ${formatDateTime(n.creeLe)} :`, indentDetail(n.texte, '')));
+      out.push('');
+    }
+
+    out.push('## Consignes');
+    out.push('- Avant de modifier quoi que ce soit, lis le code concerné et l\'historique git récent : les statuts de Gespo peuvent ne pas refléter exactement l\'état réel du code.');
+    out.push('- Reste dans le périmètre de cette tâche. Si tu repères autre chose à faire, signale-le sans le faire.');
+    out.push('- Si la demande est ambiguë ou incomplète, pose-moi la question avant de te lancer.');
+    out.push('- À la fin, résume ce que tu as fait, ce qui reste éventuellement à faire, et ce que je dois vérifier ou tester.');
+    return out.join('\n');
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      // Older browsers or a denied permission: fall back to a hidden textarea.
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      ta.remove();
+      if (!ok) throw new Error('Copie impossible dans ce navigateur.');
+    }
+  }
+
+  const promptButtonHtml = (projectId, s) => `<button type="button" class="btn-icon sm task-prompt" data-project="${projectId}" data-prompt="${s.id}" title="Copier un prompt pour Claude Code" aria-label="Copier un prompt pour Claude Code">${icon('sparkle')}</button>`;
+
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.task-prompt');
+    if (!btn) return;
+    e.stopPropagation();
+    act(() => copyText(buildTaskPrompt(btn.dataset.project, btn.dataset.prompt)), 'Prompt copié : colle-le dans Claude Code');
   });
 
   // ---------- Fold / unfold sub-tasks ----------
@@ -838,6 +980,8 @@
       el('drawer-title').textContent = p.nom;
       el('f-nom').value = p.nom;
       el('f-description').value = p.description || '';
+      el('f-dossier').value = p.dossier || '';
+      el('f-depot').value = p.depot || '';
       el('f-deadline').value = p.dateLimite;
       el('f-duree').value = p.dureeJours;
       el('f-duree-unite').value = p.dureeUnite || 'JOURS';
@@ -898,6 +1042,8 @@
     return {
       nom: el('f-nom').value.trim(),
       description: el('f-description').value,
+      dossier: el('f-dossier').value,
+      depot: el('f-depot').value,
       dateLimite: el('f-deadline').value,
       priorite: segmentedValue(el('f-priorite')),
       statut: segmentedValue(el('f-statut')),
@@ -985,6 +1131,7 @@
           <button type="button" class="btn-icon sm" data-move="outdent" title="Remonter d'un niveau" ${s.parentId ? '' : 'disabled'}>${icon('arrow-left')}</button>
           <button type="button" class="btn-icon sm" data-move="indent" title="Mettre dans la tâche au-dessus" ${pos === 0 ? 'disabled' : ''}>${icon('arrow-right')}</button>
           <span class="sep"></span>
+          ${promptButtonHtml(projectId, s)}
           <button type="button" class="btn-icon sm subtask-add-child" title="Ajouter une sous-section">${icon('plus')}</button>
           <button type="button" class="btn-icon sm danger subtask-remove" title="Supprimer">${icon('trash')}</button>
         </div>

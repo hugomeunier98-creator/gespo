@@ -36,6 +36,7 @@
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.5 9.5z"/></symbol>
   <symbol id="i-gauge"viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/></symbol>
 </svg>
@@ -168,6 +169,16 @@
           <div class="field">
             <label for="f-description">Description <span class="optional">facultatif</span></label>
             <textarea id="f-description" rows="3" placeholder="Objectif, contexte, liens utiles..."></textarea>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="f-dossier">Dossier du code <span class="optional">facultatif</span></label>
+              <input type="text" id="f-dossier" spellcheck="false" autocomplete="off" placeholder="C:&#92;Users&#92;…&#92;Work&#92;tools&#92;mon-appli">
+            </div>
+            <div class="field">
+              <label for="f-depot">Dépôt GitHub <span class="optional">facultatif</span></label>
+              <input type="text" id="f-depot" spellcheck="false" autocomplete="off" placeholder="https://github.com/…">
+            </div>
           </div>
           <div class="field-row">
             <div class="field">

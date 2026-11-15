@@ -44,6 +44,9 @@
       out.dureeUnite = body.dureeUnite;
     }
     if (body.archive !== undefined) out.archive = body.archive ? 'OUI' : '';
+    // Where the project's code lives, quoted in the prompts for Claude Code.
+    if (body.dossier !== undefined) out.dossier = String(body.dossier || '').trim();
+    if (body.depot !== undefined) out.depot = String(body.depot || '').trim();
 
     return { errors, value: out };
   }
