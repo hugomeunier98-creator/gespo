@@ -417,6 +417,12 @@ select.status-select option { background: var(--surface); color: var(--text); }
 .tree-node.collapsed > .task-bar .tree-count { display: inline-block; }
 .tree-toggle-slot { flex: none; width: 18px; margin-left: -4px; }
 
+/* Copy a prompt for Claude Code: discreet until the row is hovered */
+.task-bar > .task-prompt { opacity: .45; }
+.task-bar:hover > .task-prompt, .task-bar > .task-prompt:focus-visible { opacity: 1; }
+.task-prompt:hover { color: var(--primary-fg); }
+@media (hover: none) { .task-bar > .task-prompt { opacity: .8; } }
+
 /* Status-colored task bars (both read-only and editable) */
 .task-bar {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
