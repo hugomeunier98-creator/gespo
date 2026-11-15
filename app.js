@@ -80,14 +80,14 @@
 
   function toast(message, type = 'info') {
     const t = document.createElement('div');
-    t.className = `toast ${type === 'error' ? 'error' : ''}`;
-    t.innerHTML = `${icon(type === 'error' ? 'alert' : 'check')}<span></span>`;
+    t.className = `toast ${type === 'error' || type === 'warn' ? type : ''}`;
+    t.innerHTML = `${icon(type === 'info' ? 'check' : 'alert')}<span></span>`;
     t.querySelector('span').textContent = message;
     el('toasts').appendChild(t);
     setTimeout(() => {
       t.classList.add('leaving');
       setTimeout(() => t.remove(), 250);
-    }, type === 'error' ? 5000 : 2200);
+    }, type === 'info' ? 2200 : 5000);
   }
 
   // Runs an async UI action and reports any failure as a toast instead of an
@@ -670,7 +670,19 @@
     return [...lines.slice(0, PROMPT_OUTLINE_MAX_LINES), `- … (${lines.length - PROMPT_OUTLINE_MAX_LINES} autres tâches non listées)`];
   }
 
-  function buildTaskPrompt(projectId, taskId) {
+  // What's missing in Gespo for a prompt to work well: shown on the buttons
+  // before copying, and again once copied.
+  function promptWarnings(projectId, task) {
+    const p = state.projects.find((x) => x.id === projectId);
+    const warnings = [];
+    if (!task.detail && !childrenOf(projectId, task.id).some((c) => c.detail)) warnings.push('la tâche n\'a pas de détail');
+    if (p && !p.dossier && !p.depot) warnings.push('le projet n\'a pas de dossier du code');
+    return warnings;
+  }
+
+  // mode 'run' asks Claude Code to do the task; 'plan' only to restate it,
+  // list the files involved and propose a plan, without changing anything.
+  function buildTaskPrompt(projectId, taskId, mode = 'run') {
     const p = state.projects.find((x) => x.id === projectId);
     const task = state.subtasks.find((x) => x.id === taskId);
     if (!p || !task) throw new Error('Tâche introuvable : recharge la page.');
@@ -679,7 +691,9 @@
     const remaining = children.filter((c) => c.statut !== 'TERMINE');
     const out = [];
 
-    out.push(`Tu travailles sur le projet « ${p.nom} », suivi dans mon gestionnaire de projets Gespo. Réalise la tâche décrite ci-dessous.`, '');
+    out.push(mode === 'plan'
+      ? `Tu travailles sur le projet « ${p.nom} », suivi dans mon gestionnaire de projets Gespo. Avant de réaliser la tâche décrite ci-dessous, je veux vérifier que tu l'as bien comprise : ne modifie encore aucun fichier.`
+      : `Tu travailles sur le projet « ${p.nom} », suivi dans mon gestionnaire de projets Gespo. Réalise la tâche décrite ci-dessous.`, '');
 
     out.push('## Projet');
     out.push(`- Nom : ${p.nom}`);
@@ -728,10 +742,21 @@
     }
 
     out.push('## Consignes');
-    out.push('- Avant de modifier quoi que ce soit, lis le code concerné et l\'historique git récent : les statuts de Gespo peuvent ne pas refléter exactement l\'état réel du code.');
-    out.push('- Reste dans le périmètre de cette tâche. Si tu repères autre chose à faire, signale-le sans le faire.');
-    out.push('- Si la demande est ambiguë ou incomplète, pose-moi la question avant de te lancer.');
-    out.push('- À la fin, résume ce que tu as fait, ce qui reste éventuellement à faire, et ce que je dois vérifier ou tester.');
+    if (mode === 'plan') {
+      out.push('- Ne modifie aucun fichier et ne lance aucune commande qui change quelque chose : lis seulement le code concerné et l\'historique git récent.');
+      out.push('- Réponds avec :');
+      out.push('  1. la tâche reformulée avec tes mots : objectif et critère de fin ;');
+      out.push('  2. ce qui est déjà fait dans le code, s\'il y en a, et en quoi cela diffère des statuts de Gespo ;');
+      out.push('  3. les fichiers que tu modifierais ou créerais ;');
+      out.push('  4. ton plan, étape par étape ;');
+      out.push('  5. tes questions et les points ambigus, ou ce qui manque dans la description de la tâche.');
+      out.push('- Attends ma validation avant de commencer.');
+    } else {
+      out.push('- Avant de modifier quoi que ce soit, lis le code concerné et l\'historique git récent : les statuts de Gespo peuvent ne pas refléter exactement l\'état réel du code.');
+      out.push('- Reste dans le périmètre de cette tâche. Si tu repères autre chose à faire, signale-le sans le faire.');
+      out.push('- Si la demande est ambiguë ou incomplète, pose-moi la question avant de te lancer.');
+      out.push('- À la fin, résume ce que tu as fait, ce qui reste éventuellement à faire, et ce que je dois vérifier ou tester.');
+    }
     return out.join('\n');
   }
 
@@ -753,13 +778,29 @@
     }
   }
 
-  const promptButtonHtml = (projectId, s) => `<button type="button" class="btn-icon sm task-prompt" data-project="${projectId}" data-prompt="${s.id}" title="Copier un prompt pour Claude Code" aria-label="Copier un prompt pour Claude Code">${icon('sparkle')}</button>`;
+  // Two buttons per task: "plan only" then "run". Both turn orange, with the
+  // reason in their tooltip, when the task lacks what the prompt needs.
+  function promptButtonHtml(projectId, s) {
+    const warnings = promptWarnings(projectId, s);
+    const warn = warnings.length ? ` · Attention : ${warnings.join(' et ')}` : '';
+    const cls = `btn-icon sm task-prompt${warnings.length ? ' warn' : ''}`;
+    return `<button type="button" class="${cls}" data-project="${projectId}" data-prompt="${s.id}" data-mode="plan" title="Copier un prompt « plan seulement » : Claude Code reformule et propose un plan, sans rien modifier${warn}" aria-label="Copier un prompt plan seulement">${icon('list')}</button>`
+      + `<button type="button" class="${cls}" data-project="${projectId}" data-prompt="${s.id}" data-mode="run" title="Copier un prompt pour que Claude Code réalise la tâche${warn}" aria-label="Copier un prompt pour réaliser la tâche">${icon('sparkle')}</button>`;
+  }
 
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.task-prompt');
     if (!btn) return;
     e.stopPropagation();
-    act(() => copyText(buildTaskPrompt(btn.dataset.project, btn.dataset.prompt)), 'Prompt copié : colle-le dans Claude Code');
+    const { project, prompt, mode } = btn.dataset;
+    act(async () => {
+      const task = state.subtasks.find((x) => x.id === prompt);
+      await copyText(buildTaskPrompt(project, prompt, mode));
+      const label = mode === 'plan' ? 'Prompt « plan seulement » copié' : 'Prompt copié';
+      const warnings = task ? promptWarnings(project, task) : [];
+      if (warnings.length) toast(`${label}, mais ${warnings.join(' et ')} : le résultat risque d'être approximatif.`, 'warn');
+      else toast(`${label} : colle-le dans Claude Code`);
+    });
   });
 
   // ---------- Fold / unfold sub-tasks ----------
