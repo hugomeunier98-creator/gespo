@@ -421,6 +421,9 @@ select.status-select option { background: var(--surface); color: var(--text); }
 .task-bar > .task-prompt { opacity: .45; }
 .task-bar:hover > .task-prompt, .task-bar > .task-prompt:focus-visible { opacity: 1; }
 .task-prompt:hover { color: var(--primary-fg); }
+.task-prompt.warn { color: var(--warning); }
+.task-bar > .task-prompt.warn { opacity: .75; }
+.task-bar > .task-prompt + .task-prompt { margin-left: -6px; }
 @media (hover: none) { .task-bar > .task-prompt { opacity: .8; } }
 
 /* Status-colored task bars (both read-only and editable) */
@@ -618,6 +621,7 @@ select.status-select option { background: var(--surface); color: var(--text); }
   animation: toast-in .2s ease; max-width: min(520px, calc(100vw - 32px));
 }
 .toast.error { background: var(--danger); color: #fff; }
+.toast.warn { background: #f79009; color: #1c1917; }
 .toast.leaving { opacity: 0; transform: translateY(6px); transition: opacity .2s, transform .2s; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
