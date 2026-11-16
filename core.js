@@ -139,42 +139,127 @@
     list.forEach((s, i) => { s.ordre = i; });
   }
 
+  // ---------- Journal ----------
+  // Every change is described by entries { id, date, projetId, projet, objet,
+  // action, nom, details } -- objet: projet | tache | note | temps; action:
+  // ajout | modification | suppression | deplacement; details: lines of text.
+  // The project's name is copied so entries stay readable once it's deleted.
+  const LOG_STATUTS = { A_FAIRE: 'À faire', EN_COURS: 'En cours', TERMINE: 'Terminé' };
+  const LOG_PRIORITES = { HAUTE: 'Haute', MOYENNE: 'Moyenne', BASSE: 'Basse' };
+  const LOG_TEXT_MAX = 160;
+  const LOG_NAMES_MAX = 5;
+
+  const short = (text) => {
+    const t = String(text === undefined || text === null ? '' : text).trim().replace(/\s+/g, ' ');
+    return t.length > LOG_TEXT_MAX ? `${t.slice(0, LOG_TEXT_MAX - 1)}…` : t;
+  };
+  const frDate = (iso) => (iso ? String(iso).split('-').reverse().join('/') : '');
+  const duree = (n, unite) => (n === '' || n === undefined || n === null ? '' : `${n} ${unite === 'HEURES' ? 'h' : 'j'}`);
+  const plural = (n, word) => `${n} ${word}${n > 1 ? 's' : ''}`;
+
+  // [label, how to show the value] of the fields a change is traced on.
+  const PROJECT_FIELDS = [
+    ['Nom', (x) => short(x.nom)],
+    ['Description', (x) => short(x.description)],
+    ['Échéance', (x) => frDate(x.dateLimite)],
+    ['Priorité', (x) => LOG_PRIORITES[x.priorite] || x.priorite],
+    ['Statut', (x) => LOG_STATUTS[x.statut] || x.statut],
+    ['Durée estimée', (x) => duree(x.dureeJours, x.dureeUnite)],
+    ['Archivage', (x) => (x.archive ? 'archivé' : 'actif')],
+    ['Dossier du code', (x) => short(x.dossier)],
+    ['Dépôt GitHub', (x) => short(x.depot)],
+  ];
+  const TASK_FIELDS = [
+    ['Nom', (x) => short(x.nom)],
+    ['Statut', (x) => LOG_STATUTS[x.statut] || x.statut],
+    ['Détail', (x) => short(x.detail)],
+    ['Durée estimée', (x) => duree(x.dureeJours, x.dureeUnite)],
+  ];
+  const SESSION_FIELDS = [
+    ['Date', (x) => frDate(x.date)],
+    ['Heures', (x) => `${x.heures} h`],
+  ];
+
+  // "Label : before → after" for each traced field that changed.
+  function changes(fields, before, after) {
+    return fields.flatMap(([label, show]) => {
+      const a = String(show(before) || '');
+      const b = String(show(after) || '');
+      return a === b ? [] : [`${label} : ${a || '(vide)'} → ${b || '(vide)'}`];
+    });
+  }
+
+  function entry(project, objet, action, nom, details = []) {
+    return { id: newId(), date: now(), projetId: project.id, projet: project.nom, objet, action, nom: short(nom), details: details.join('\n') };
+  }
+
+  // A task's entry, with where it sits when it isn't at the top level.
+  function taskEntry(d, project, s, action, details = []) {
+    const path = [];
+    for (let cur = s; cur && cur.parentId;) {
+      cur = d.subtasks.find((x) => x.id === cur.parentId && x.projetId === s.projetId);
+      if (!cur || path.includes(cur.nom)) break;
+      path.unshift(cur.nom);
+    }
+    return entry(project, 'tache', action, s.nom, path.length ? [...details, `Dans : ${path.join(' › ')}`] : details);
+  }
+
+  const sessionName = (se) => `${se.heures} h le ${frDate(se.date)}`;
+  const findProject = (d, id) => d.projects.find((x) => x.id === id);
+
   const ok = (status, body, data) => ({ status, body, data });
   const fail = (status, ...errors) => ({ status, body: { errors } });
 
   // Each route gets a private copy of the data it may modify in place, and
   // returns ok(status, body, data) with `data` set only when something changed.
+  // It describes what it changed by pushing journal entries to `log`.
   const routes = [
-    ['POST', 'projects', (d, p, body) => {
+    ['POST', 'projects', (d, p, body, log) => {
       const { errors, value } = validateProjectInput(body);
       if (errors.length) return fail(400, ...errors);
       const project = { id: newId(), ...value, creeLe: now() };
       d.projects.push(project);
+      log.push(entry(project, 'projet', 'ajout', project.nom, [
+        `Échéance : ${frDate(project.dateLimite)}`,
+        `Durée estimée : ${duree(project.dureeJours, project.dureeUnite)}`,
+        `Priorité : ${LOG_PRIORITES[project.priorite]} · Statut : ${LOG_STATUTS[project.statut]}`,
+      ]));
       return ok(201, project, d);
     }],
 
-    ['PUT', 'projects/:id', (d, p, body) => {
+    ['PUT', 'projects/:id', (d, p, body, log) => {
       const { errors, value } = validateProjectInput(body, { partial: true });
       if (errors.length) return fail(400, ...errors);
       const idx = d.projects.findIndex((x) => x.id === p.id);
       if (idx === -1) return fail(404, 'Projet introuvable.');
-      d.projects[idx] = { ...d.projects[idx], ...value };
+      const before = d.projects[idx];
+      d.projects[idx] = { ...before, ...value };
+      const diff = changes(PROJECT_FIELDS, before, d.projects[idx]);
+      if (diff.length) log.push(entry(d.projects[idx], 'projet', 'modification', d.projects[idx].nom, diff));
       return ok(200, d.projects[idx], d);
     }],
 
-    ['DELETE', 'projects/:id', (d, p) => {
-      if (!d.projects.some((x) => x.id === p.id)) return fail(404, 'Projet introuvable.');
+    ['DELETE', 'projects/:id', (d, p, body, log) => {
+      const project = findProject(d, p.id);
+      if (!project) return fail(404, 'Projet introuvable.');
+      const counts = [
+        [d.subtasks.filter((s) => s.projetId === p.id).length, 'tâche'],
+        [d.notes.filter((n) => n.projetId === p.id).length, 'note'],
+        [d.sessions.filter((se) => se.projetId === p.id).length, 'session de travail'],
+      ].filter(([n]) => n).map(([n, word]) => plural(n, word));
       d.projects = d.projects.filter((x) => x.id !== p.id);
       d.subtasks = d.subtasks.filter((s) => s.projetId !== p.id);
       d.sessions = d.sessions.filter((se) => se.projetId !== p.id);
       d.notes = d.notes.filter((n) => n.projetId !== p.id);
+      log.push(entry(project, 'projet', 'suppression', project.nom, counts.length ? [`Avec : ${counts.join(', ')}`] : []));
       return ok(204, undefined, d);
     }],
 
-    ['POST', 'projects/:id/subtasks', (d, p, body) => {
+    ['POST', 'projects/:id/subtasks', (d, p, body, log) => {
       const { errors, value } = validateSubtaskInput(body);
       if (errors.length) return fail(400, ...errors);
-      if (!d.projects.some((x) => x.id === p.id)) return fail(404, 'Projet introuvable.');
+      const project = findProject(d, p.id);
+      if (!project) return fail(404, 'Projet introuvable.');
       const parentId = body.parentId ? String(body.parentId) : '';
       if (parentId && !d.subtasks.some((s) => s.id === parentId && s.projetId === p.id)) {
         return fail(404, 'Sous-tache parente introuvable.');
@@ -184,22 +269,36 @@
       renumber(siblings);
       const subtask = { id: newId(), projetId: p.id, parentId, ...value, ordre: siblings.length, creeLe: now() };
       d.subtasks.push(subtask);
+      const estimate = duree(subtask.dureeJours, subtask.dureeUnite);
+      log.push(taskEntry(d, project, subtask, 'ajout', estimate ? [`Durée estimée : ${estimate}`] : []));
       return ok(201, subtask, d);
     }],
 
-    ['PUT', 'projects/:id/subtasks/:subId', (d, p, body) => {
+    ['PUT', 'projects/:id/subtasks/:subId', (d, p, body, log) => {
       const { errors, value } = validateSubtaskInput(body, { partial: true });
       if (errors.length) return fail(400, ...errors);
       const idx = d.subtasks.findIndex((s) => s.id === p.subId && s.projetId === p.id);
       if (idx === -1) return fail(404, 'Sous-tache introuvable.');
-      d.subtasks[idx] = { ...d.subtasks[idx], ...value };
+      const before = d.subtasks[idx];
+      d.subtasks[idx] = { ...before, ...value };
+      const diff = changes(TASK_FIELDS, before, d.subtasks[idx]);
+      const project = findProject(d, p.id);
+      if (diff.length && project) log.push(taskEntry(d, project, d.subtasks[idx], 'modification', diff));
       return ok(200, d.subtasks[idx], d);
     }],
 
     // Deleting a sub-task also deletes everything nested under it.
-    ['DELETE', 'projects/:id/subtasks/:subId', (d, p) => {
-      if (!d.subtasks.some((s) => s.id === p.subId && s.projetId === p.id)) return fail(404, 'Sous-tache introuvable.');
+    ['DELETE', 'projects/:id/subtasks/:subId', (d, p, body, log) => {
+      const target = d.subtasks.find((s) => s.id === p.subId && s.projetId === p.id);
+      if (!target) return fail(404, 'Sous-tache introuvable.');
       const removed = subtreeIds(d.subtasks, p.subId);
+      const nested = d.subtasks.filter((s) => removed.has(s.id) && s.id !== target.id).map((s) => s.nom);
+      const project = findProject(d, p.id);
+      // Described before the deletion, while its parents can still be named.
+      if (project) {
+        const names = nested.slice(0, LOG_NAMES_MAX).join(', ') + (nested.length > LOG_NAMES_MAX ? ', …' : '');
+        log.push(taskEntry(d, project, target, 'suppression', nested.length ? [`Avec ${plural(nested.length, 'sous-tâche')} : ${names}`] : []));
+      }
       d.subtasks = d.subtasks.filter((s) => !removed.has(s.id));
       return ok(204, undefined, d);
     }],
@@ -207,7 +306,7 @@
     // Reorders a sub-task: up/down among its siblings, indent = becomes the
     // last child of its previous sibling, outdent = becomes the sibling right
     // after its parent.
-    ['POST', 'projects/:id/subtasks/:subId/move', (d, p, body) => {
+    ['POST', 'projects/:id/subtasks/:subId/move', (d, p, body, log) => {
       const { direction } = body;
       if (!MOVE_DIRECTIONS.includes(direction)) return fail(400, 'Direction de deplacement invalide.');
       const target = d.subtasks.find((s) => s.id === p.subId && s.projetId === p.id);
@@ -216,19 +315,23 @@
       const parentId = effectiveParentId(d.subtasks, target);
       const siblings = siblingsOf(d.subtasks, p.id, parentId);
       const pos = siblings.indexOf(target);
+      let moved = '';
 
       if (direction === 'up' && pos > 0) {
         [siblings[pos - 1], siblings[pos]] = [siblings[pos], siblings[pos - 1]];
         renumber(siblings);
+        moved = `Remontée avant « ${siblings[pos].nom} »`;
       } else if (direction === 'down' && pos < siblings.length - 1) {
         [siblings[pos + 1], siblings[pos]] = [siblings[pos], siblings[pos + 1]];
         renumber(siblings);
+        moved = `Descendue après « ${siblings[pos].nom} »`;
       } else if (direction === 'indent' && pos > 0) {
         const newParent = siblings[pos - 1];
         const newSiblings = siblingsOf(d.subtasks, p.id, newParent.id);
         target.parentId = newParent.id;
         renumber([...newSiblings, target]);
         renumber(siblings.filter((s) => s !== target));
+        moved = `Placée sous « ${newParent.nom} »`;
       } else if (direction === 'outdent' && parentId) {
         const parent = d.subtasks.find((s) => s.id === parentId);
         const grandParentId = effectiveParentId(d.subtasks, parent);
@@ -237,55 +340,75 @@
         upper.splice(upper.indexOf(parent) + 1, 0, target);
         renumber(upper);
         renumber(siblings.filter((s) => s !== target));
+        moved = `Sortie de « ${parent.nom} »`;
       }
+      const project = findProject(d, p.id);
+      if (moved && project) log.push(taskEntry(d, project, target, 'deplacement', [moved]));
       return ok(204, undefined, d);
     }],
 
-    ['POST', 'projects/:id/sessions', (d, p, body) => {
+    ['POST', 'projects/:id/sessions', (d, p, body, log) => {
       const { errors, value } = validateSessionInput(body);
       if (errors.length) return fail(400, ...errors);
-      if (!d.projects.some((x) => x.id === p.id)) return fail(404, 'Projet introuvable.');
+      const project = findProject(d, p.id);
+      if (!project) return fail(404, 'Projet introuvable.');
       const session = { id: newId(), projetId: p.id, ...value, creeLe: now() };
       d.sessions.push(session);
+      log.push(entry(project, 'temps', 'ajout', sessionName(session)));
       return ok(201, session, d);
     }],
 
-    ['PUT', 'projects/:id/sessions/:sessionId', (d, p, body) => {
+    ['PUT', 'projects/:id/sessions/:sessionId', (d, p, body, log) => {
       const { errors, value } = validateSessionInput(body, { partial: true });
       if (errors.length) return fail(400, ...errors);
       const idx = d.sessions.findIndex((se) => se.id === p.sessionId && se.projetId === p.id);
       if (idx === -1) return fail(404, 'Session introuvable.');
-      d.sessions[idx] = { ...d.sessions[idx], ...value };
+      const before = d.sessions[idx];
+      d.sessions[idx] = { ...before, ...value };
+      const diff = changes(SESSION_FIELDS, before, d.sessions[idx]);
+      const project = findProject(d, p.id);
+      if (diff.length && project) log.push(entry(project, 'temps', 'modification', sessionName(d.sessions[idx]), diff));
       return ok(200, d.sessions[idx], d);
     }],
 
-    ['DELETE', 'projects/:id/sessions/:sessionId', (d, p) => {
-      if (!d.sessions.some((se) => se.id === p.sessionId && se.projetId === p.id)) return fail(404, 'Session introuvable.');
-      d.sessions = d.sessions.filter((se) => !(se.id === p.sessionId && se.projetId === p.id));
+    ['DELETE', 'projects/:id/sessions/:sessionId', (d, p, body, log) => {
+      const session = d.sessions.find((se) => se.id === p.sessionId && se.projetId === p.id);
+      if (!session) return fail(404, 'Session introuvable.');
+      d.sessions = d.sessions.filter((se) => se !== session);
+      const project = findProject(d, p.id);
+      if (project) log.push(entry(project, 'temps', 'suppression', sessionName(session)));
       return ok(204, undefined, d);
     }],
 
-    ['POST', 'projects/:id/notes', (d, p, body) => {
+    ['POST', 'projects/:id/notes', (d, p, body, log) => {
       const { errors, value } = validateNoteInput(body);
       if (errors.length) return fail(400, ...errors);
-      if (!d.projects.some((x) => x.id === p.id)) return fail(404, 'Projet introuvable.');
+      const project = findProject(d, p.id);
+      if (!project) return fail(404, 'Projet introuvable.');
       const note = { id: newId(), projetId: p.id, ...value, creeLe: now() };
       d.notes.push(note);
+      log.push(entry(project, 'note', 'ajout', note.texte));
       return ok(201, note, d);
     }],
 
-    ['PUT', 'projects/:id/notes/:noteId', (d, p, body) => {
+    ['PUT', 'projects/:id/notes/:noteId', (d, p, body, log) => {
       const { errors, value } = validateNoteInput(body);
       if (errors.length) return fail(400, ...errors);
       const idx = d.notes.findIndex((n) => n.id === p.noteId && n.projetId === p.id);
       if (idx === -1) return fail(404, 'Note introuvable.');
-      d.notes[idx] = { ...d.notes[idx], ...value };
+      const before = d.notes[idx];
+      d.notes[idx] = { ...before, ...value };
+      const project = findProject(d, p.id);
+      if (before.texte !== value.texte && project) log.push(entry(project, 'note', 'modification', value.texte, [`Avant : ${short(before.texte)}`]));
       return ok(200, d.notes[idx], d);
     }],
 
-    ['DELETE', 'projects/:id/notes/:noteId', (d, p) => {
-      if (!d.notes.some((n) => n.id === p.noteId && n.projetId === p.id)) return fail(404, 'Note introuvable.');
-      d.notes = d.notes.filter((n) => !(n.id === p.noteId && n.projetId === p.id));
+    ['DELETE', 'projects/:id/notes/:noteId', (d, p, body, log) => {
+      const note = d.notes.find((n) => n.id === p.noteId && n.projetId === p.id);
+      if (!note) return fail(404, 'Note introuvable.');
+      d.notes = d.notes.filter((n) => n !== note);
+      const project = findProject(d, p.id);
+      if (project) log.push(entry(project, 'note', 'suppression', note.texte));
       return ok(204, undefined, d);
     }],
   ];
@@ -303,8 +426,9 @@
   }
 
   // Runs one write call ('POST', '/api/projects/…', body) against `data`,
-  // which is left untouched. Returns { status, body } plus `data`, the full
-  // new set of collections, when the call changed something.
+  // which is left untouched. Returns { status, body } plus, when the call
+  // changed something, `data` (the full new set of collections) and `log`
+  // (the journal entries describing the change, possibly none).
   function handle(method, path, body, data) {
     const segments = path.split('?')[0].replace(/^\/?api\//, '').replace(/\/$/, '').split('/');
     for (const [m, pattern, run] of routes) {
@@ -317,10 +441,18 @@
         sessions: data.sessions || [],
         notes: data.notes || [],
       }));
-      return run(copy, params, body || {});
+      const log = [];
+      const result = run(copy, params, body || {}, log);
+      return result.data ? { ...result, log } : result;
     }
     return fail(404, 'Action inconnue.');
   }
 
-  return { handle, siblingsOf, effectiveParentId, subtreeIds };
+  // 'YYYY-MM' of an ISO date, in local time: journal entries are filed by month.
+  function monthOf(iso) {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  return { handle, monthOf, siblingsOf, effectiveParentId, subtreeIds };
 });

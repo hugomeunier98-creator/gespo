@@ -7,6 +7,9 @@ window.GespoSync = (() => {
   const CONFIG_KEY = 'gespo.github';
   const DEFAULT_REPO = 'hugomeunier98-creator/gespo-data';
   const FILE = 'gespo.json';
+  // The journal of changes, one file per month (journal/2026-11.json), so the
+  // main file stays small: it's re-read every few seconds.
+  const journalFile = (month) => `journal/${month}.json`;
   const MAX_ATTEMPTS = 5;
 
   let current = null; // { sha, etag, data } of the last version read or written
@@ -52,14 +55,18 @@ window.GespoSync = (() => {
   }
 
   function encode(data) {
-    const bytes = new TextEncoder().encode(JSON.stringify(data, null, 1));
+    return encodeText(JSON.stringify(data, null, 1));
+  }
+
+  function encodeText(text) {
+    const bytes = new TextEncoder().encode(text);
     let binary = '';
     for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
     return btoa(binary);
   }
 
-  async function github(method, config, { body, headers = {} } = {}) {
-    const res = await fetch(`https://api.github.com/repos/${config.repo}/contents/${FILE}`, {
+  async function github(method, config, { file = FILE, body, headers = {} } = {}) {
+    const res = await fetch(`https://api.github.com/repos/${config.repo}/contents/${file}`, {
       method,
       cache: 'no-store',
       headers: {
@@ -115,6 +122,10 @@ window.GespoSync = (() => {
         const saved = await res.json();
         if (base.sha) superseded.add(base.sha);
         current = { sha: saved.content.sha, etag: null, data: next };
+        // Queued behind this write: the screen updates without waiting for it.
+        if (result.log && result.log.length) {
+          enqueue(() => appendJournal(config, result.log)).catch((err) => console.warn('Journal non enregistré :', err.message));
+        }
         return result.body;
       }
       // Another device wrote first: retry on top of its version.
@@ -128,12 +139,40 @@ window.GespoSync = (() => {
     throw new Error('Trop de modifications simultanées, réessaie.');
   }
 
+  // Entries of one month, oldest first ([] for a month without any).
+  async function readJournal(config, month) {
+    const res = await github('GET', config, { file: journalFile(month) });
+    if (res.status === 404) return { sha: null, entries: [] };
+    if (!res.ok) throw new Error(`Lecture du journal impossible (HTTP ${res.status}).`);
+    const file = await res.json();
+    return { sha: file.sha, entries: decode(file.content) };
+  }
+
+  // One entry per line, so the file's history on GitHub reads as a list.
+  const journalText = (entries) => `[\n${entries.map((e) => JSON.stringify(e)).join(',\n')}\n]\n`;
+
+  async function appendJournal(config, entries) {
+    const month = GespoCore.monthOf(entries[0].date);
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+      const { sha, entries: existing } = await readJournal(config, month);
+      const res = await github('PUT', config, {
+        file: journalFile(month),
+        body: { message: 'Gespo : journal', content: encodeText(journalText([...existing, ...entries])), ...(sha ? { sha } : {}) },
+      });
+      if (res.ok) return;
+      if (res.status !== 409 && res.status !== 422) throw new Error(`HTTP ${res.status}`);
+    }
+    throw new Error('trop de modifications simultanées');
+  }
+
   // Same contract as the local server's HTTP API: returns the response body,
   // throws an Error with a readable message otherwise.
   function request(method, path, body) {
     const config = getConfig();
     if (!config) return Promise.reject(new Error('Synchronisation non configurée.'));
     return enqueue(async () => {
+      const journal = method === 'GET' && path.match(/^\/api\/journal\?mois=(\d{4}-\d{2})$/);
+      if (journal) return (await readJournal(config, journal[1])).entries;
       if (method === 'GET') return (await fetchLatest(config)).data;
       return write(config, method, path, body);
     });

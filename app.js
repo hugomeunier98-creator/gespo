@@ -121,6 +121,7 @@
     });
     document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${tabName}`));
     if (tabName === 'calendrier') renderCalendar();
+    if (tabName === 'journal') globalJournal.load();
   }
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -983,6 +984,236 @@
     renderCalendar();
   });
 
+  // ---------- Journal ----------
+  // Every change made in Gespo (recorded by core.js, read a month at a time
+  // from /api/journal) mixed with the commits of each project's GitHub
+  // repository, newest first. Shown for all projects (top tab) and for one
+  // project (drawer tab).
+  const JOURNAL_TITLES = {
+    projet: { ajout: 'Projet créé', modification: 'Projet modifié', suppression: 'Projet supprimé' },
+    tache: { ajout: 'Tâche ajoutée', modification: 'Tâche modifiée', suppression: 'Tâche supprimée', deplacement: 'Tâche déplacée' },
+    note: { ajout: 'Note ajoutée', modification: 'Note modifiée', suppression: 'Note supprimée' },
+    temps: { ajout: 'Temps ajouté', modification: 'Temps modifié', suppression: 'Temps supprimé' },
+  };
+  const JOURNAL_ICONS = { projet: 'folder', tache: 'check', note: 'note', temps: 'timer', code: 'code' };
+  const WEEKDAY_LABELS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+  const COMMITS_PER_PAGE = 100;
+  const COMMIT_DETAILS_MAX = 400;
+  const CURRENT_MONTH_CACHE_MS = 60000;
+
+  const monthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  const firstOfThisMonth = () => new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
+  // 'owner/name' of a github.com repository URL, or null.
+  function githubRepoOf(depot) {
+    const m = String(depot || '').trim().match(/github\.com[/:]([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/);
+    return m ? `${m[1]}/${m[2]}` : null;
+  }
+
+  // Commits of `repo` during `month`, as journal entries. Past months never
+  // change, so they're fetched once; the current one again after a minute.
+  const commitsCache = new Map();
+  function projectCommits(p, repo, month) {
+    const key = `${repo}|${monthKey(month)}`;
+    const cached = commitsCache.get(key);
+    const fresh = cached && (monthKey(month) !== monthKey(new Date()) || Date.now() - cached.at < CURRENT_MONTH_CACHE_MS);
+    if (fresh) return cached.promise.then((commits) => commits.map((c) => commitEntry(p, c)));
+    const promise = fetchCommits(repo, month);
+    commitsCache.set(key, { at: Date.now(), promise });
+    promise.catch(() => commitsCache.delete(key));
+    return promise.then((commits) => commits.map((c) => commitEntry(p, c)));
+  }
+
+  async function fetchCommits(repo, month) {
+    const since = month.toISOString();
+    const until = new Date(month.getFullYear(), month.getMonth() + 1, 1).toISOString();
+    // The sync key also opens private repositories it was given access to.
+    const config = GespoSync.getConfig();
+    const res = await fetch(`https://api.github.com/repos/${repo}/commits?since=${since}&until=${until}&per_page=${COMMITS_PER_PAGE}`, {
+      cache: 'no-store',
+      headers: { Accept: 'application/vnd.github+json', ...(config ? { Authorization: `Bearer ${config.token}` } : {}) },
+    });
+    if (res.status === 409) return []; // empty repository
+    if ([401, 403, 404].includes(res.status)) {
+      throw new Error(`${repo} : dépôt introuvable ou privé. Pour voir ses commits, ajoute ce dépôt à la clé GitHub de Gespo.`);
+    }
+    if (!res.ok) throw new Error(`${repo} : commits illisibles (HTTP ${res.status}).`);
+    return res.json();
+  }
+
+  // The commit message's body without trailers (Co-Authored-By: …), each
+  // paragraph unwrapped: git wraps lines at ~72 characters.
+  function commitEntry(p, c) {
+    const [nom, ...rest] = c.commit.message.split('\n');
+    const details = rest.join('\n').trim().split(/\n\s*\n/)
+      .map((para) => para.split('\n').filter((l) => !/^[\w-]+-by:/i.test(l.trim())).join(' ').trim())
+      .filter(Boolean)
+      .join('\n');
+    return {
+      id: c.sha,
+      date: c.commit.author.date,
+      projetId: p.id,
+      projet: p.nom,
+      objet: 'code',
+      action: 'commit',
+      nom,
+      details: details.length > COMMIT_DETAILS_MAX ? `${details.slice(0, COMMIT_DETAILS_MAX - 1)}…` : details,
+      url: c.html_url,
+      sha: c.sha.slice(0, 7),
+    };
+  }
+
+  function journalEntryHtml(e, showProject) {
+    const time = new Date(e.date);
+    const title = e.objet === 'code'
+      ? `Commit <a href="${escapeHtml(e.url)}" target="_blank" rel="noopener"><code>${escapeHtml(e.sha)}</code></a>`
+      : escapeHtml((JOURNAL_TITLES[e.objet] || {})[e.action] || `${e.objet} : ${e.action}`);
+    return `
+      <li class="journal-entry journal-${escapeHtml(e.objet)}">
+        <span class="journal-time">${String(time.getHours()).padStart(2, '0')}:${String(time.getMinutes()).padStart(2, '0')}</span>
+        <span class="journal-icon">${icon(JOURNAL_ICONS[e.objet] || 'edit')}</span>
+        <div class="journal-body">
+          <div class="journal-head">
+            <span class="journal-title">${title}</span>
+            <span class="journal-name">${escapeHtml(e.nom)}</span>
+            ${showProject ? `<span class="journal-project">${escapeHtml(e.projet)}</span>` : ''}
+          </div>
+          ${e.details ? `<div class="journal-details">${escapeHtml(e.details)}</div>` : ''}
+        </div>
+      </li>`;
+  }
+
+  // Builds a journal inside `root`: for the project `projectIdOf()` gives, or
+  // without it for every project (then a project filter is offered).
+  function createJournalView(root, projectIdOf = null) {
+    const view = { month: firstOfThisMonth(), type: '', project: '', entries: [], notices: [], loading: false };
+    const global = !projectIdOf;
+    const scope = () => (projectIdOf ? projectIdOf() : '');
+    let loads = 0;
+    root.innerHTML = `
+      <div class="calendar-toolbar journal-toolbar">
+        <h2 class="journal-month"></h2>
+        <div class="calendar-nav">
+          <button type="button" class="btn-icon journal-refresh" title="Actualiser" aria-label="Actualiser">${icon('refresh')}</button>
+          <button type="button" class="btn btn-ghost journal-today">Ce mois-ci</button>
+          <button type="button" class="btn-icon journal-prev" aria-label="Mois précédent">${icon('chevron-left')}</button>
+          <button type="button" class="btn-icon journal-next" aria-label="Mois suivant">${icon('chevron-right')}</button>
+        </div>
+      </div>
+      <div class="toolbar journal-filters">
+        <div class="chips journal-type" role="group" aria-label="Type">
+          <button type="button" data-value="" class="chip active">Tout</button>
+          <button type="button" data-value="gespo" class="chip">${icon('folder')}Projets</button>
+          <button type="button" data-value="code" class="chip">${icon('code')}Code</button>
+        </div>
+        ${global ? '<label class="select-inline">Projet <select class="journal-project-filter"></select></label>' : ''}
+      </div>
+      <ul class="journal-notices"></ul>
+      <div class="journal-list"></div>
+    `;
+    const $ = (sel) => root.querySelector(sel);
+
+    function render() {
+      $('.journal-month').textContent = `${MONTH_LABELS[view.month.getMonth()]} ${view.month.getFullYear()}`;
+      $('.journal-next').disabled = view.month >= firstOfThisMonth();
+      $('.journal-notices').innerHTML = view.notices.map((n) => `<li>${icon('alert')}<span>${escapeHtml(n)}</span></li>`).join('');
+      if (global) {
+        const select = $('.journal-project-filter');
+        const names = [...new Map([...state.projects, ...view.entries.map((e) => ({ id: e.projetId, nom: e.projet }))]
+          .map((p) => [p.id, p.nom])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+        select.innerHTML = `<option value="">Tous les projets</option>${names.map(([id, nom]) => `<option value="${escapeHtml(id)}">${escapeHtml(nom)}</option>`).join('')}`;
+        select.value = names.some(([id]) => id === view.project) ? view.project : '';
+      }
+
+      const list = $('.journal-list');
+      if (view.loading) {
+        list.innerHTML = '<p class="empty-inline">Chargement…</p>';
+        return;
+      }
+      const shown = view.entries
+        .filter((e) => !view.project || e.projetId === view.project)
+        .filter((e) => !view.type || (view.type === 'code') === (e.objet === 'code'))
+        .sort((a, b) => b.date.localeCompare(a.date));
+      if (!shown.length) {
+        list.innerHTML = '<p class="empty-inline">Aucune modification enregistrée ce mois-ci.</p>';
+        return;
+      }
+      const days = new Map();
+      shown.forEach((e) => {
+        const day = toIso(new Date(e.date));
+        if (!days.has(day)) days.set(day, []);
+        days.get(day).push(e);
+      });
+      list.innerHTML = [...days].map(([day, entries]) => {
+        const d = new Date(`${day}T00:00:00`);
+        return `
+          <section class="journal-day">
+            <h3>${WEEKDAY_LABELS[d.getDay()]} ${d.getDate()} ${MONTH_LABELS[d.getMonth()].toLowerCase()}</h3>
+            <ul class="journal-entries">${entries.map((e) => journalEntryHtml(e, global && !view.project)).join('')}</ul>
+          </section>`;
+      }).join('');
+    }
+
+    async function load() {
+      const ticket = ++loads;
+      const month = view.month;
+      view.loading = true;
+      view.notices = [];
+      render();
+      const projects = state.projects.filter((p) => (global || p.id === scope()) && githubRepoOf(p.depot));
+      const [changes, ...commits] = await Promise.allSettled([
+        api(`/api/journal?mois=${monthKey(month)}`),
+        ...projects.map((p) => projectCommits(p, githubRepoOf(p.depot), month)),
+      ]);
+      if (ticket !== loads) return; // a newer load (other month) took over
+      view.loading = false;
+      view.entries = [];
+      if (changes.status === 'fulfilled') view.entries.push(...(changes.value || []).filter((e) => global || e.projetId === scope()));
+      else view.notices.push(`Journal illisible : ${changes.reason.message}`);
+      commits.forEach((r) => {
+        if (r.status === 'fulfilled') view.entries.push(...r.value);
+        else view.notices.push(r.reason.message);
+      });
+      render();
+    }
+
+    const goTo = (month) => {
+      view.month = month;
+      load();
+    };
+    $('.journal-prev').addEventListener('click', () => goTo(new Date(view.month.getFullYear(), view.month.getMonth() - 1, 1)));
+    $('.journal-next').addEventListener('click', () => goTo(new Date(view.month.getFullYear(), view.month.getMonth() + 1, 1)));
+    $('.journal-today').addEventListener('click', () => goTo(firstOfThisMonth()));
+    $('.journal-refresh').addEventListener('click', () => {
+      commitsCache.clear();
+      load();
+    });
+    $('.journal-type').addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      view.type = chip.dataset.value;
+      root.querySelectorAll('.journal-type .chip').forEach((c) => c.classList.toggle('active', c === chip));
+      render();
+    });
+    if (global) {
+      $('.journal-project-filter').addEventListener('change', (e) => {
+        view.project = e.target.value;
+        render();
+      });
+    }
+    return {
+      load,
+      // A different project opened in the drawer: back to this month.
+      reset() {
+        view.month = firstOfThisMonth();
+        view.entries = [];
+      },
+    };
+  }
+
+  const globalJournal = createJournalView(el('tab-journal'));
+  const drawerJournal = createJournalView(el('drawer-journal'), () => state.editingProjectId);
+
   // ---------- Drawer (create / edit a project) ----------
   // Fits a task's detail field to its text. 'important' so the inline height
   // wins over the .ghost-input fixed height; skipped while hidden (would be 0).
@@ -1001,6 +1232,7 @@
     document.querySelectorAll('.dtab-panel').forEach((p) => p.classList.toggle('active', p.dataset.dpanel === tab));
     // Detail fields rendered while the tab was hidden measured 0: size them now.
     if (tab === 'taches') document.querySelectorAll('.st-detail-input').forEach(growDetailInput);
+    if (tab === 'journal') drawerJournal.load();
     const focusTarget = { taches: 'st-nom', notes: 'no-texte', temps: 'se-heures' }[tab];
     if (focusTarget) setTimeout(() => el(focusTarget).focus(), 0);
   }
@@ -1046,6 +1278,7 @@
       renderSessionsInModal(projectId);
       renderNotesInModal(projectId);
       updateDrawerCounts(projectId);
+      drawerJournal.reset();
     } else {
       el('drawer-kicker').textContent = 'Nouveau';
       el('drawer-title').textContent = 'Créer un projet';

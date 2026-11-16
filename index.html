@@ -39,6 +39,9 @@
   <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></symbol>
   <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3l1.9 5.1L18 10l-5.1 1.9L11 17l-1.9-5.1L4 10l5.1-1.9z"/><path d="M18.5 14.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4.75 4.75 0 0 1-.5 9.5z"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6L3.5 8.5"/><path d="M3.5 3.5v5h5M12 7.5V12l3 2"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="M8.5 7l-5 5 5 5M15.5 7l5 5-5 5"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.6-4.5M4 13a8 8 0 0 0 14.6 4.5"/><path d="M4.5 3v4h4M19.5 21v-4h-4"/></symbol>
   <symbol id="i-gauge"viewBox="0 0 24 24"><path d="M4 18a8 8 0 1 1 16 0"/><path d="M12 18l4-6"/></symbol>
 </svg>
 
@@ -54,6 +57,9 @@
       </button>
       <button class="tab-btn" role="tab" aria-selected="false" data-tab="calendrier">
         <svg class="icon"><use href="#i-calendar"/></svg><span>Calendrier</span>
+      </button>
+      <button class="tab-btn" role="tab" aria-selected="false" data-tab="journal">
+        <svg class="icon"><use href="#i-history"/></svg><span>Journal</span>
       </button>
     </nav>
     <div class="topbar-actions">
@@ -139,6 +145,9 @@
     </div>
     <div id="calendar-grid" class="calendar-grid"></div>
   </section>
+
+  <!-- Journal: every change made in Gespo, plus the projects' commits -->
+  <section id="tab-journal" class="tab-panel" aria-label="Journal"></section>
 </main>
 
 <!-- Side panel to create / edit a project -->
@@ -157,6 +166,7 @@
       <button type="button" role="tab" data-dtab="taches">Tâches <span class="count" id="count-taches"></span></button>
       <button type="button" role="tab" data-dtab="notes">Notes <span class="count" id="count-notes"></span></button>
       <button type="button" role="tab" data-dtab="temps">Temps <span class="count" id="count-temps"></span></button>
+      <button type="button" role="tab" data-dtab="journal">Journal</button>
     </nav>
 
     <div class="drawer-body">
@@ -276,6 +286,9 @@
         <ul id="sessions-list" class="sessions-list"></ul>
         <p id="sessions-empty" class="empty-inline" hidden>Aucune session de travail enregistrée.</p>
       </section>
+
+      <!-- Journal du projet -->
+      <section id="drawer-journal" class="dtab-panel" data-dpanel="journal"></section>
     </div>
   </aside>
 </div>
