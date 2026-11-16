@@ -25,19 +25,35 @@ function readRemote() {
   }
 }
 
+// Every month of the journal (journal/2026-11.json ...), oldest first.
+function readRemoteJournal() {
+  let files;
+  try {
+    files = JSON.parse(gh(['api', `repos/${REPO}/contents/journal`]));
+  } catch (err) {
+    if (/HTTP 404/.test(String(err.stderr || err.message))) return [];
+    throw err;
+  }
+  return files
+    .filter((f) => /^\d{4}-\d{2}\.json$/.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .flatMap((f) => JSON.parse(Buffer.from(JSON.parse(gh(['api', `repos/${REPO}/contents/${f.path}`])).content, 'base64').toString('utf8')));
+}
+
 async function main() {
   const [command, flag] = process.argv.slice(2);
   if (command === 'export') {
     const remote = readRemote();
     if (!remote) throw new Error(`Aucune donnee sur GitHub (${REPO}/${FILE}).`);
-    await store.writeAll({ projects: [], subtasks: [], sessions: [], notes: [], ...remote.data });
+    await store.writeAll({ projects: [], subtasks: [], sessions: [], notes: [], ...remote.data, journal: readRemoteJournal() });
     console.log(`Donnees GitHub copiees dans ${store.FILE_PATH}`);
   } else if (command === 'import') {
     const remote = readRemote();
     if (remote && flag !== '--force') {
       throw new Error('Des donnees existent deja sur GitHub. Ajoute --force pour les remplacer par le fichier Excel.');
     }
-    const data = await store.readAll();
+    // The journal stays in the Excel file: online it's kept in monthly files.
+    const { journal, ...data } = await store.readAll();
     const body = {
       message: 'Gespo : import du fichier Excel',
       content: Buffer.from(JSON.stringify(data, null, 1)).toString('base64'),

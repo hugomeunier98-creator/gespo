@@ -24,18 +24,26 @@ function asyncRoute(fn) {
   };
 }
 
+// The journal is read a month at a time (GET /api/journal?mois=2026-11).
 app.get('/api/data', asyncRoute(async (req, res) => {
-  const data = await store.readAll();
+  const { journal, ...data } = await store.readAll();
   res.json(data);
 }));
 
+app.get('/api/journal', asyncRoute(async (req, res) => {
+  const { journal } = await store.readAll();
+  res.json(journal.filter((e) => core.monthOf(e.date) === req.query.mois));
+}));
+
 // Every write goes through core.handle inside one transaction, so concurrent
-// edits from several Gespo instances on the same file stay consistent.
+// edits from several Gespo instances on the same file stay consistent; the
+// entries describing the change are added to the journal in the same write.
 app.use('/api', asyncRoute(async (req, res) => {
   let result;
   await store.transact((data) => {
     result = core.handle(req.method, req.originalUrl, req.body, data);
-    return result.data || null;
+    if (!result.data) return null;
+    return result.log.length ? { ...result.data, journal: [...data.journal, ...result.log] } : result.data;
   });
   res.status(result.status);
   if (result.body === undefined) res.end();
