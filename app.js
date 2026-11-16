@@ -984,6 +984,14 @@
   });
 
   // ---------- Drawer (create / edit a project) ----------
+  // Fits a task's detail field to its text. 'important' so the inline height
+  // wins over the .ghost-input fixed height; skipped while hidden (would be 0).
+  function growDetailInput(t) {
+    if (!t.offsetParent) return;
+    t.style.setProperty('height', 'auto', 'important');
+    t.style.setProperty('height', `${Math.max(26, t.scrollHeight + 2)}px`, 'important');
+  }
+
   function setDrawerTab(tab) {
     state.drawerTab = tab;
     document.querySelectorAll('#drawer-tabs [data-dtab]').forEach((b) => {
@@ -991,6 +999,8 @@
       b.setAttribute('aria-selected', String(b.dataset.dtab === tab));
     });
     document.querySelectorAll('.dtab-panel').forEach((p) => p.classList.toggle('active', p.dataset.dpanel === tab));
+    // Detail fields rendered while the tab was hidden measured 0: size them now.
+    if (tab === 'taches') document.querySelectorAll('.st-detail-input').forEach(growDetailInput);
     const focusTarget = { taches: 'st-nom', notes: 'no-texte', temps: 'se-heures' }[tab];
     if (focusTarget) setTimeout(() => el(focusTarget).focus(), 0);
   }
@@ -1194,12 +1204,8 @@
     const detailInput = row.querySelector('.st-detail-input');
     nomInput.value = s.nom;
     detailInput.value = s.detail || '';
-    const autoGrow = () => {
-      detailInput.style.height = 'auto';
-      detailInput.style.height = `${Math.max(26, detailInput.scrollHeight + 2)}px`;
-    };
-    detailInput.addEventListener('input', autoGrow);
-    requestAnimationFrame(autoGrow);
+    detailInput.addEventListener('input', () => growDetailInput(detailInput));
+    requestAnimationFrame(() => growDetailInput(detailInput));
 
     const update = (body) => act(async () => {
       await api(`/api/projects/${projectId}/subtasks/${s.id}`, { method: 'PUT', body: JSON.stringify(body) });
