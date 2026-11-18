@@ -434,6 +434,9 @@ select.status-select option { background: var(--surface); color: var(--text); }
 }
 .task-bar.statut-en_cours { border-left-color: var(--st-doing); background: var(--st-doing-soft); border-color: color-mix(in srgb, var(--st-doing) 25%, transparent); border-left-color: var(--st-doing); }
 .task-bar.statut-termine { border-left-color: var(--st-done); background: var(--st-done-soft); border-color: color-mix(in srgb, var(--st-done) 25%, transparent); border-left-color: var(--st-done); }
+.task-bar.task-open { cursor: pointer; }
+.task-bar.task-open:hover { filter: brightness(0.97); }
+.task-bar.flash { box-shadow: var(--focus); transition: box-shadow .3s; }
 .task-bar .st-name { flex: 1 1 auto; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
 .task-bar.statut-termine .st-name { color: var(--text-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent); }
 .task-bar .st-duration { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }

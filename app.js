@@ -438,6 +438,13 @@
       card.querySelector('[data-act="notes"]').addEventListener('click', () => openDrawer('edit', p.id, 'notes'));
       card.querySelector('[data-act="time"]').addEventListener('click', () => openDrawer('edit', p.id, 'temps'));
       card.querySelector('[data-act="archive"]').addEventListener('click', () => setArchived(p, !isArchived(p)));
+      // Clicking a task (outside its own controls) opens it in the drawer.
+      card.querySelectorAll('[data-open-task]').forEach((bar) => {
+        bar.addEventListener('click', (e) => {
+          if (e.target.closest('button, select, a')) return;
+          openTaskInDrawer(p.id, bar.dataset.openTask);
+        });
+      });
       card.querySelectorAll('select.status-select').forEach((select) => {
         select.addEventListener('change', async (e) => {
           const value = e.target.value.toLowerCase();
@@ -461,7 +468,7 @@
     if (!children.length) return '';
     return `<ul class="tree-children">${children.map((s) => `
         <li class="tree-node${isCollapsed(projectId, s) ? ' collapsed' : ''}">
-          <div class="task-bar statut-${s.statut.toLowerCase()}">
+          <div class="task-bar task-open statut-${s.statut.toLowerCase()}" data-open-task="${s.id}" title="Modifier la tâche">
             ${treeToggleHtml(projectId, s, children)}
             <span class="st-name">${escapeHtml(s.nom)}</span>
             ${treeCountHtml(projectId, s)}
@@ -1318,6 +1325,20 @@
     if (tab === 'infos') setTimeout(() => el('f-nom').focus(), 0);
   }
 
+  // Same as "Gérer les tâches", then scrolls to the task and puts the cursor
+  // in its name (after setDrawerTab's own focus on the "add a task" field).
+  function openTaskInDrawer(projectId, taskId) {
+    openDrawer('edit', projectId, 'taches');
+    setTimeout(() => {
+      const row = el('subtasks-list').querySelector(`[data-task-id="${taskId}"]`);
+      if (!row) return;
+      row.scrollIntoView({ block: 'center' });
+      row.querySelector('.st-nom-input').focus({ preventScroll: true });
+      row.classList.add('flash');
+      setTimeout(() => row.classList.remove('flash'), 1200);
+    }, 50);
+  }
+
   function closeDrawer() {
     el('drawer-overlay').hidden = true;
     document.body.style.overflow = '';
@@ -1424,6 +1445,7 @@
     const siblings = childrenOf(projectId, s.parentId && state.subtasks.some((x) => x.id === s.parentId) ? s.parentId : '');
     const row = document.createElement('div');
     row.className = `task-bar statut-${s.statut.toLowerCase()}`;
+    row.dataset.taskId = s.id;
     row.innerHTML = `
       <div class="task-line">
         ${treeToggleHtml(projectId, s, siblings)}
