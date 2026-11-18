@@ -448,7 +448,14 @@
       }));
       const log = [];
       const result = run(copy, params, body || {}, log);
-      return result.data ? { ...result, log } : result;
+      if (!result.data) return result;
+      // Any traced change to a project or its content dates the project's
+      // last modification (the list is sorted by it).
+      log.forEach((e) => {
+        const project = result.data.projects.find((x) => x.id === e.projetId);
+        if (project) project.modifieLe = e.date;
+      });
+      return { ...result, log };
     }
     return fail(404, 'Action inconnue.');
   }

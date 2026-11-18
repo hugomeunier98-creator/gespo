@@ -7,7 +7,7 @@
     search: '',
     filterStatut: '',
     filterArchive: 'ACTIFS',
-    sortBy: 'deadline',
+    sortBy: 'priorite',
     chargeOpen: false,
     calendarMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     editingProjectId: null,
@@ -38,9 +38,12 @@
   function loadPrefs() {
     try {
       const prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || '{}');
-      ['filterStatut', 'filterArchive', 'sortBy', 'chargeOpen'].forEach((k) => {
+      ['filterStatut', 'filterArchive', 'chargeOpen'].forEach((k) => {
         if (prefs[k] !== undefined) state[k] = prefs[k];
       });
+      // Choices saved before priority-then-last-change became the default
+      // (sortVersion 2) are dropped so every device switches to it.
+      if (prefs.sortVersion === 2 && prefs.sortBy) state.sortBy = prefs.sortBy;
       if (Array.isArray(prefs.collapsed)) state.collapsed = new Set(prefs.collapsed);
       if (prefs.theme) document.documentElement.dataset.theme = prefs.theme;
     } catch (_) { /* storage unavailable: defaults are fine */ }
@@ -51,6 +54,7 @@
         filterStatut: state.filterStatut,
         filterArchive: state.filterArchive,
         sortBy: state.sortBy,
+        sortVersion: 2,
         chargeOpen: state.chargeOpen,
         collapsed: [...state.collapsed],
         theme: document.documentElement.dataset.theme || '',
@@ -252,6 +256,15 @@
     return String(str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   }
 
+  // ISO date of the project's last change. Projects not changed since this
+  // was recorded fall back to the latest creation among them and their content.
+  function lastModified(p) {
+    if (p.modifieLe) return String(p.modifieLe);
+    return [p, ...subtasksOf(p.id), ...notesOf(p.id), ...sessionsOf(p.id)]
+      .map((x) => String(x.creeLe || ''))
+      .reduce((max, d) => (d > max ? d : max), '');
+  }
+
   function getVisibleProjects() {
     let list = [...state.projects];
     if (state.filterArchive === 'ACTIFS') list = list.filter((p) => !isArchived(p));
@@ -264,7 +277,8 @@
     if (state.sortBy === 'deadline') {
       list.sort((a, b) => (a.dateLimite || '9999').localeCompare(b.dateLimite || '9999'));
     } else if (state.sortBy === 'priorite') {
-      list.sort((a, b) => (PRIORITE_ORDER[a.priorite] ?? 9) - (PRIORITE_ORDER[b.priorite] ?? 9));
+      list.sort((a, b) => (PRIORITE_ORDER[a.priorite] ?? 9) - (PRIORITE_ORDER[b.priorite] ?? 9)
+        || lastModified(b).localeCompare(lastModified(a)));
     } else if (state.sortBy === 'nom') {
       list.sort((a, b) => a.nom.localeCompare(b.nom));
     }
