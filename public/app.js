@@ -194,6 +194,9 @@
     return p.archive === 'OUI';
   }
 
+  // Projects may have no estimate (ongoing projects never delivered).
+  const hasEstimate = (p) => toHours(p.dureeJours, p.dureeUnite) > 0;
+
   function toHours(valeur, unite) {
     if (valeur === '' || valeur === undefined || valeur === null || Number.isNaN(Number(valeur))) return 0;
     return unite === 'HEURES' ? Number(valeur) : Number(valeur) * HOURS_PER_DAY;
@@ -382,8 +385,8 @@
           ${p.description && !expanded ? `<p class="project-desc">${escapeHtml(p.description)}</p>` : ''}
           <div class="project-meta">
             <span class="${deadline.cls}">${icon('calendar')}${deadline.label}</span>
-            <span title="Durée estimée">${icon('clock')}${formatDuree(p.dureeJours, p.dureeUnite)}</span>
-            ${reel > 0 ? `<span title="Temps réel / écart avec l'estimation">${icon('timer')}${round2(reel)} h <span class="${ecartClass(reel - estimation)}">(${formatEcart(reel - estimation)})</span></span>` : ''}
+            ${hasEstimate(p) ? `<span title="Durée estimée">${icon('clock')}${formatDuree(p.dureeJours, p.dureeUnite)}</span>` : ''}
+            ${reel > 0 ? `<span title="${hasEstimate(p) ? 'Temps réel / écart avec l’estimation' : 'Temps réel'}">${icon('timer')}${round2(reel)} h${hasEstimate(p) ? ` <span class="${ecartClass(reel - estimation)}">(${formatEcart(reel - estimation)})</span>` : ''}</span>` : ''}
             ${nbNotes ? `<span>${icon('note')}${nbNotes} note${nbNotes > 1 ? 's' : ''}</span>` : ''}
           </div>
         </div>
@@ -497,8 +500,8 @@
               <h3>${icon('timer')}Temps</h3>
               <div class="time-mini">
                 <div><span>Réel</span><strong>${round2(reel)} h</strong></div>
-                <div><span>Estimé</span><strong>${round2(estimation)} h</strong></div>
-                <div><span>Écart</span><strong class="${ecartClass(ecart)}">${formatEcart(ecart)}</strong></div>
+                <div><span>Estimé</span><strong>${hasEstimate(p) ? `${round2(estimation)} h` : '–'}</strong></div>
+                <div><span>Écart</span><strong class="${hasEstimate(p) ? ecartClass(ecart) : ''}">${hasEstimate(p) ? formatEcart(ecart) : '–'}</strong></div>
               </div>
             </div>
             <div class="details-section">
@@ -703,8 +706,12 @@
     if (p.depot) out.push(`- Dépôt GitHub : ${p.depot}`);
     if (!p.dossier && !p.depot) out.push('- Emplacement du code : non renseigné dans Gespo. Si le dossier ouvert ne correspond pas à ce projet, demande-moi où se trouve le code.');
     out.push(`- Priorité : ${PRIORITE_LABELS[p.priorite] || p.priorite} · Statut : ${STATUT_LABELS[p.statut] || p.statut}`);
-    if (p.dateLimite) out.push(`- Échéance : ${deadlineInfo(p).label}`);
-    out.push(`- Temps : ${round2(heuresReelles(p.id))} h passées sur ${round2(toHours(p.dureeJours, p.dureeUnite))} h estimées`, '');
+    out.push(`- Échéance : ${p.dateLimite ? deadlineInfo(p).label : 'aucune'}`);
+    out.push(hasEstimate(p)
+      ? `- Temps : ${round2(heuresReelles(p.id))} h passées sur ${round2(toHours(p.dureeJours, p.dureeUnite))} h estimées`
+      : `- Temps : ${round2(heuresReelles(p.id))} h passées (pas d'estimation)`);
+    if (!p.dateLimite && !hasEstimate(p)) out.push('- Projet de fond : il évolue en continu, sans livraison prévue.');
+    out.push('');
 
     out.push(`## Tâche à réaliser : « ${task.nom} »`);
     out.push(`- Emplacement : ${[p.nom, ...ancestors.map((a) => a.nom), task.nom].join(' › ')} (niveau ${ancestors.length + 1})`);
@@ -1331,7 +1338,7 @@
       dateLimite: el('f-deadline').value,
       priorite: segmentedValue(el('f-priorite')),
       statut: segmentedValue(el('f-statut')),
-      dureeJours: Number(el('f-duree').value),
+      dureeJours: el('f-duree').value === '' ? '' : Number(el('f-duree').value),
       dureeUnite: el('f-duree-unite').value,
     };
   }
@@ -1616,8 +1623,8 @@
     const ecart = reel - estimation;
     el('sessions-summary').innerHTML = `
       <div><span>Temps réel</span><strong>${round2(reel)} h</strong></div>
-      <div><span>Estimation</span><strong>${round2(estimation)} h</strong></div>
-      <div><span>Écart</span><strong class="${ecartClass(ecart)}">${formatEcart(ecart)}</strong></div>
+      <div><span>Estimation</span><strong>${hasEstimate(project) ? `${round2(estimation)} h` : '–'}</strong></div>
+      <div><span>Écart</span><strong class="${hasEstimate(project) ? ecartClass(ecart) : ''}">${hasEstimate(project) ? formatEcart(ecart) : '–'}</strong></div>
     `;
 
     if (!el('se-date').value) el('se-date').value = toIso(new Date());

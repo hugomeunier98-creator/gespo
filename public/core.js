@@ -22,8 +22,10 @@
       out.nom = String(body.nom || '').trim();
     }
     if (body.description !== undefined) out.description = String(body.description || '');
+    // Deadline and estimate are optional: some projects evolve continuously
+    // without ever being delivered.
     if (!partial || body.dateLimite !== undefined) {
-      if (!body.dateLimite) errors.push('La deadline est requise.');
+      if (body.dateLimite && !/^\d{4}-\d{2}-\d{2}$/.test(body.dateLimite)) errors.push('Échéance invalide.');
       out.dateLimite = body.dateLimite || '';
     }
     if (!partial || body.priorite !== undefined) {
@@ -35,13 +37,16 @@
       out.statut = body.statut;
     }
     if (!partial || body.dureeJours !== undefined) {
-      const duree = Number(body.dureeJours);
-      if (!body.dureeJours || Number.isNaN(duree) || duree <= 0) errors.push('La duree du projet est requise et doit etre > 0.');
-      out.dureeJours = duree;
+      if (body.dureeJours === '' || body.dureeJours === null || body.dureeJours === undefined) {
+        out.dureeJours = '';
+      } else {
+        const duree = Number(body.dureeJours);
+        if (Number.isNaN(duree) || duree <= 0) errors.push('La durée estimée doit être un nombre > 0.');
+        out.dureeJours = duree;
+      }
     }
     if (!partial || body.dureeUnite !== undefined) {
-      if (!DUREE_UNITES.includes(body.dureeUnite)) errors.push('Unite de duree invalide.');
-      out.dureeUnite = body.dureeUnite;
+      out.dureeUnite = DUREE_UNITES.includes(body.dureeUnite) ? body.dureeUnite : 'JOURS';
     }
     if (body.archive !== undefined) out.archive = body.archive ? 'OUI' : '';
     // Where the project's code lives, quoted in the prompts for Claude Code.
@@ -220,10 +225,10 @@
       const project = { id: newId(), ...value, creeLe: now() };
       d.projects.push(project);
       log.push(entry(project, 'projet', 'ajout', project.nom, [
-        `Échéance : ${frDate(project.dateLimite)}`,
-        `Durée estimée : ${duree(project.dureeJours, project.dureeUnite)}`,
+        project.dateLimite ? `Échéance : ${frDate(project.dateLimite)}` : '',
+        project.dureeJours ? `Durée estimée : ${duree(project.dureeJours, project.dureeUnite)}` : '',
         `Priorité : ${LOG_PRIORITES[project.priorite]} · Statut : ${LOG_STATUTS[project.statut]}`,
-      ]));
+      ].filter(Boolean)));
       return ok(201, project, d);
     }],
 
