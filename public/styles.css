@@ -213,17 +213,32 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .pill-archive { background: var(--surface-2); color: var(--text-3); border: 1px solid var(--border); }
 .pill .icon { width: 13px; height: 13px; }
 
-/* A <select> that looks like a status pill */
-select.status-select {
-  appearance: none; -webkit-appearance: none; height: 24px; padding: 0 24px 0 10px; border: 0;
-  border-radius: 999px; font-size: 12px; font-weight: 600; box-shadow: none; cursor: pointer;
-  background-repeat: no-repeat; background-position: right 8px center; background-size: 8px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+/* A task's status: a pill opening the status menu (app.js, toggleStatusMenu) */
+.status-select {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 7px 0 9px;
+  border: 0; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
 }
-select.status-select.pill-a_faire { background-color: var(--st-todo-soft); color: var(--st-todo-fg); }
-select.status-select.pill-en_cours { background-color: var(--st-doing-soft); color: var(--st-doing-fg); }
-select.status-select.pill-termine { background-color: var(--st-done-soft); color: var(--st-done-fg); }
-select.status-select option { background: var(--surface); color: var(--text); }
+.status-select > .icon { width: 12px; height: 12px; opacity: .6; transform: rotate(90deg); transition: transform .15s; }
+.status-select[aria-expanded="true"] > .icon { transform: rotate(-90deg); }
+.status-select:hover { filter: brightness(.95); }
+.status-select:focus-visible { outline: none; box-shadow: var(--focus); }
+.status-select.pill-a_faire { background: var(--st-todo-soft); color: var(--st-todo-fg); }
+.status-select.pill-en_cours { background: var(--st-doing-soft); color: var(--st-doing-fg); }
+.status-select.pill-termine { background: var(--st-done-soft); color: var(--st-done-fg); }
+.status-menu {
+  position: fixed; z-index: 90; min-width: 150px; padding: 4px; display: grid; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  animation: fade-in .12s ease;
+}
+.status-menu[hidden] { display: none; }
+.status-menu button {
+  display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer;
+}
+.status-menu button:hover, .status-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.status-menu button.selected { font-weight: 600; }
+.status-menu .status-check { margin-left: auto; width: 15px; height: 15px; color: var(--primary); visibility: hidden; }
+.status-menu button.selected .status-check { visibility: visible; }
 
 .input-group { display: flex; }
 .input-group > input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }

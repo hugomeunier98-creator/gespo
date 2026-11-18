@@ -324,9 +324,99 @@
     return div.innerHTML;
   }
 
-  function statutSelectOptions(statut) {
-    return STATUTS.map((v) => `<option value="${v}" ${statut === v ? 'selected' : ''}>${STATUT_LABELS[v]}</option>`).join('');
+  // ---------- Status menu ----------
+  // A task's status is a pill opening Gespo's own menu: a native <select>
+  // list is drawn by the OS (Windows, iOS) and clashes with the app.
+  function statusButtonHtml(statut, attrs = '') {
+    const v = statut.toLowerCase();
+    return `<button type="button" class="status-select pill-${v}" data-statut="${statut}" aria-haspopup="listbox" aria-expanded="false" ${attrs}><span class="dot dot-${v}"></span><span class="status-label">${STATUT_LABELS[statut]}</span>${icon('chevron-right')}</button>`;
   }
+
+  function setStatusButton(button, statut) {
+    const v = statut.toLowerCase();
+    button.dataset.statut = statut;
+    button.className = `status-select pill-${v}`;
+    button.querySelector('.dot').className = `dot dot-${v}`;
+    button.querySelector('.status-label').textContent = STATUT_LABELS[statut];
+    // The task's bar takes the status color right away.
+    const bar = button.closest('.task-bar');
+    if (bar) {
+      STATUTS.forEach((x) => bar.classList.remove(`statut-${x.toLowerCase()}`));
+      bar.classList.add(`statut-${v}`);
+    }
+  }
+
+  const statusMenu = document.createElement('div');
+  statusMenu.className = 'status-menu';
+  statusMenu.setAttribute('role', 'listbox');
+  statusMenu.hidden = true;
+  statusMenu.innerHTML = STATUTS.map((v) => `<button type="button" role="option" data-value="${v}"><span class="dot dot-${v.toLowerCase()}"></span>${STATUT_LABELS[v]}${icon('check', 'status-check')}</button>`).join('');
+  document.body.appendChild(statusMenu);
+  let statusMenuOpen = null; // { button, onPick }
+
+  function closeStatusMenu(refocus = false) {
+    if (!statusMenuOpen) return;
+    const { button } = statusMenuOpen;
+    statusMenuOpen = null;
+    statusMenu.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (refocus && button.isConnected) button.focus();
+  }
+
+  // Opens the menu under `button` (above it when there's no room below);
+  // `onPick(statut)` runs when another status is chosen.
+  function toggleStatusMenu(button, onPick) {
+    if (statusMenuOpen && statusMenuOpen.button === button) {
+      closeStatusMenu();
+      return;
+    }
+    closeStatusMenu();
+    statusMenuOpen = { button, onPick };
+    statusMenu.querySelectorAll('[role="option"]').forEach((o) => {
+      const selected = o.dataset.value === button.dataset.statut;
+      o.classList.toggle('selected', selected);
+      o.setAttribute('aria-selected', String(selected));
+    });
+    statusMenu.hidden = false;
+    const r = button.getBoundingClientRect();
+    const m = statusMenu.getBoundingClientRect();
+    const below = r.bottom + 4 + m.height <= window.innerHeight;
+    statusMenu.style.top = `${Math.min(window.innerHeight - m.height - 8, Math.max(8, below ? r.bottom + 4 : r.top - 4 - m.height))}px`;
+    statusMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - m.width - 8))}px`;
+    button.setAttribute('aria-expanded', 'true');
+    statusMenu.querySelector('.selected').focus({ preventScroll: true });
+  }
+
+  statusMenu.addEventListener('click', (e) => {
+    const option = e.target.closest('[role="option"]');
+    if (!option || !statusMenuOpen) return;
+    const { button, onPick } = statusMenuOpen;
+    closeStatusMenu(true);
+    if (option.dataset.value === button.dataset.statut) return;
+    setStatusButton(button, option.dataset.value);
+    onPick(option.dataset.value);
+  });
+
+  statusMenu.addEventListener('keydown', (e) => {
+    const options = [...statusMenu.querySelectorAll('[role="option"]')];
+    const i = options.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      options[(i + (e.key === 'ArrowDown' ? 1 : options.length - 1)) % options.length].focus({ preventScroll: true });
+    } else if (e.key === 'Escape' || e.key === 'Tab') {
+      // Escape must not also close the drawer behind the menu.
+      e.stopPropagation();
+      e.preventDefault();
+      closeStatusMenu(true);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (statusMenuOpen && !statusMenu.contains(e.target) && !statusMenuOpen.button.contains(e.target)) closeStatusMenu();
+  });
+  // The menu is placed once: close it rather than leave it floating.
+  document.addEventListener('scroll', (e) => { if (!statusMenu.contains(e.target)) closeStatusMenu(); }, true);
+  window.addEventListener('resize', () => closeStatusMenu());
 
   function statusPill(statut) {
     return `<span class="pill pill-${statut.toLowerCase()}"><span class="dot dot-${statut.toLowerCase()}"></span>${STATUT_LABELS[statut]}</span>`;
@@ -445,19 +535,14 @@
           openTaskInDrawer(p.id, bar.dataset.openTask);
         });
       });
-      card.querySelectorAll('select.status-select').forEach((select) => {
-        select.addEventListener('change', async (e) => {
-          const value = e.target.value.toLowerCase();
-          select.className = `status-select pill-${value}`;
-          select.closest('.task-bar').className = `task-bar statut-${value}`;
-          await act(async () => {
-            await api(`/api/projects/${p.id}/subtasks/${select.dataset.subtaskId}`, {
-              method: 'PUT',
-              body: JSON.stringify({ statut: e.target.value }),
-            });
-            await loadData();
+      card.querySelectorAll('.status-select[data-subtask-id]').forEach((button) => {
+        button.addEventListener('click', () => toggleStatusMenu(button, (statut) => act(async () => {
+          await api(`/api/projects/${p.id}/subtasks/${button.dataset.subtaskId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ statut }),
           });
-        });
+          await loadData();
+        })));
       });
     }
     return card;
@@ -474,9 +559,7 @@
             ${treeCountHtml(projectId, s)}
             ${promptButtonHtml(projectId, s)}
             ${s.dureeJours !== '' ? `<span class="st-duration">${formatDuree(s.dureeJours, s.dureeUnite)}</span>` : ''}
-            <select class="status-select pill-${s.statut.toLowerCase()}" data-subtask-id="${s.id}" aria-label="Statut de ${escapeHtml(s.nom)}">
-              ${statutSelectOptions(s.statut)}
-            </select>
+            ${statusButtonHtml(s.statut, `data-subtask-id="${s.id}" aria-label="Statut de ${escapeHtml(s.nom)}"`)}
             ${s.detail ? `<p class="st-detail">${escapeHtml(s.detail)}</p>` : ''}
           </div>
           ${renderTreeNodesHtml(projectId, s.id)}
@@ -1451,7 +1534,7 @@
         ${treeToggleHtml(projectId, s, siblings)}
         <input type="text" class="ghost-input st-nom-input" aria-label="Nom">
         ${treeCountHtml(projectId, s)}
-        <select class="status-select pill-${s.statut.toLowerCase()} st-statut" aria-label="Statut">${statutSelectOptions(s.statut)}</select>
+        ${statusButtonHtml(s.statut, 'aria-label="Statut"')}
         <div class="task-actions">
           <button type="button" class="btn-icon sm" data-move="up" title="Monter" ${pos === 0 ? 'disabled' : ''}>${icon('arrow-up')}</button>
           <button type="button" class="btn-icon sm" data-move="down" title="Descendre" ${pos === siblingCount - 1 ? 'disabled' : ''}>${icon('arrow-down')}</button>
@@ -1497,7 +1580,8 @@
       update({ nom: nomInput.value });
     });
     detailInput.addEventListener('change', () => update({ detail: detailInput.value }));
-    row.querySelector('.st-statut').addEventListener('change', (e) => update({ statut: e.target.value }));
+    const statusButton = row.querySelector('.status-select');
+    statusButton.addEventListener('click', () => toggleStatusMenu(statusButton, (statut) => update({ statut })));
     const saveDuree = () => {
       const rawVal = row.querySelector('.st-duree').value;
       update({ dureeJours: rawVal === '' ? '' : Number(rawVal), dureeUnite: row.querySelector('.st-duree-unite').value });
