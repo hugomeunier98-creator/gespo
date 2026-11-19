@@ -346,6 +346,16 @@
     }
   }
 
+  // Shows `popup` under `button`, above it when there's no room below, and
+  // always inside the window.
+  function placePopup(popup, button) {
+    const r = button.getBoundingClientRect();
+    const m = popup.getBoundingClientRect();
+    const below = r.bottom + 4 + m.height <= window.innerHeight;
+    popup.style.top = `${Math.min(window.innerHeight - m.height - 8, Math.max(8, below ? r.bottom + 4 : r.top - 4 - m.height))}px`;
+    popup.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - m.width - 8))}px`;
+  }
+
   const statusMenu = document.createElement('div');
   statusMenu.className = 'status-menu';
   statusMenu.setAttribute('role', 'listbox');
@@ -378,11 +388,7 @@
       o.setAttribute('aria-selected', String(selected));
     });
     statusMenu.hidden = false;
-    const r = button.getBoundingClientRect();
-    const m = statusMenu.getBoundingClientRect();
-    const below = r.bottom + 4 + m.height <= window.innerHeight;
-    statusMenu.style.top = `${Math.min(window.innerHeight - m.height - 8, Math.max(8, below ? r.bottom + 4 : r.top - 4 - m.height))}px`;
-    statusMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - m.width - 8))}px`;
+    placePopup(statusMenu, button);
     button.setAttribute('aria-expanded', 'true');
     statusMenu.querySelector('.selected').focus({ preventScroll: true });
   }
@@ -417,6 +423,163 @@
   // The menu is placed once: close it rather than leave it floating.
   document.addEventListener('scroll', (e) => { if (!statusMenu.contains(e.target)) closeStatusMenu(); }, true);
   window.addEventListener('resize', () => closeStatusMenu());
+
+  // ---------- Date picker ----------
+  // Same reason as the status menu: the native date calendar is drawn by the
+  // OS. A date field is a button holding its ISO date in data-value.
+  const DAY_SHORT = ['dim.', 'lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.'];
+  const DOW_INITIALS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  const MONTH_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+  function parseIso(iso) {
+    const [y, m, d] = iso.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+
+  function formatDateLong(iso) {
+    const d = parseIso(iso);
+    return `${DAY_SHORT[d.getDay()]} ${d.getDate()} ${MONTH_LABELS[d.getMonth()].toLowerCase()} ${d.getFullYear()}`;
+  }
+
+  // Short enough for a date field on a phone.
+  function formatDateShort(iso) {
+    const d = parseIso(iso);
+    return `${DAY_SHORT[d.getDay()]} ${d.getDate()} ${MONTH_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+  }
+
+  function dateButtonHtml(iso, attrs = '') {
+    return `<button type="button" class="date-select" data-value="${iso}" aria-haspopup="dialog" aria-expanded="false" ${attrs}>${icon('calendar')}<span class="date-label">${formatDateShort(iso)}</span></button>`;
+  }
+
+  function setDateButton(button, iso) {
+    button.dataset.value = iso;
+    button.querySelector('.date-label').textContent = formatDateShort(iso);
+  }
+
+  const datePicker = document.createElement('div');
+  datePicker.className = 'date-menu';
+  datePicker.setAttribute('role', 'dialog');
+  datePicker.setAttribute('aria-label', 'Choisir une date');
+  datePicker.hidden = true;
+  datePicker.innerHTML = `
+    <div class="date-menu-head">
+      <button type="button" class="btn-icon sm" data-nav="-1" aria-label="Mois précédent">${icon('chevron-left')}</button>
+      <strong class="date-menu-title"></strong>
+      <button type="button" class="btn-icon sm" data-nav="1" aria-label="Mois suivant">${icon('chevron-right')}</button>
+    </div>
+    <div class="date-grid"></div>
+    <div class="date-menu-foot"><button type="button" class="date-today">Aujourd'hui</button></div>`;
+  document.body.appendChild(datePicker);
+  let datePickerOpen = null; // { button, onPick, month, focus }
+
+  // Six weeks from the Monday on or before the 1st: the height never changes.
+  function renderDatePicker(focusDay = false) {
+    const { button, month, focus } = datePickerOpen;
+    const today = toIso(new Date());
+    datePicker.querySelector('.date-menu-title').textContent = `${MONTH_LABELS[month.getMonth()]} ${month.getFullYear()}`;
+    const day = new Date(month.getFullYear(), month.getMonth(), 1 - ((month.getDay() + 6) % 7));
+    const cells = DOW_INITIALS.map((x) => `<span class="date-dow">${x}</span>`);
+    for (let i = 0; i < 42; i += 1) {
+      const iso = toIso(day);
+      const classes = ['date-day'];
+      if (day.getMonth() !== month.getMonth()) classes.push('outside');
+      if (iso === today) classes.push('today');
+      if (iso === button.dataset.value) classes.push('selected');
+      cells.push(`<button type="button" class="${classes.join(' ')}" data-date="${iso}" tabindex="${iso === focus ? 0 : -1}" aria-label="${formatDateLong(iso)}">${day.getDate()}</button>`);
+      day.setDate(day.getDate() + 1);
+    }
+    datePicker.querySelector('.date-grid').innerHTML = cells.join('');
+    if (focusDay) datePicker.querySelector(`[data-date="${focus}"]`)?.focus({ preventScroll: true });
+  }
+
+  function closeDatePicker(refocus = false) {
+    if (!datePickerOpen) return;
+    const { button } = datePickerOpen;
+    datePickerOpen = null;
+    datePicker.hidden = true;
+    button.setAttribute('aria-expanded', 'false');
+    if (refocus && button.isConnected) button.focus();
+  }
+
+  // Opens the calendar on the button's month; `onPick(iso)` runs when
+  // another day is chosen.
+  function toggleDatePicker(button, onPick) {
+    if (datePickerOpen && datePickerOpen.button === button) {
+      closeDatePicker();
+      return;
+    }
+    closeDatePicker();
+    closeStatusMenu();
+    const focus = button.dataset.value || toIso(new Date());
+    const d = parseIso(focus);
+    datePickerOpen = { button, onPick, focus, month: new Date(d.getFullYear(), d.getMonth(), 1) };
+    datePicker.hidden = false;
+    renderDatePicker();
+    placePopup(datePicker, button);
+    button.setAttribute('aria-expanded', 'true');
+    datePicker.querySelector(`[data-date="${focus}"]`).focus({ preventScroll: true });
+  }
+
+  function pickDate(iso) {
+    const { button, onPick } = datePickerOpen;
+    closeDatePicker(true);
+    if (iso === button.dataset.value) return;
+    setDateButton(button, iso);
+    onPick(iso);
+  }
+
+  function moveDateFocus(iso) {
+    const d = parseIso(iso);
+    datePickerOpen.focus = iso;
+    datePickerOpen.month = new Date(d.getFullYear(), d.getMonth(), 1);
+    renderDatePicker(true);
+  }
+
+  datePicker.addEventListener('click', (e) => {
+    if (!datePickerOpen) return;
+    const nav = e.target.closest('[data-nav]');
+    const dayButton = e.target.closest('[data-date]');
+    if (nav) {
+      const { month } = datePickerOpen;
+      datePickerOpen.month = new Date(month.getFullYear(), month.getMonth() + Number(nav.dataset.nav), 1);
+      renderDatePicker();
+    } else if (dayButton) {
+      pickDate(dayButton.dataset.date);
+    } else if (e.target.closest('.date-today')) {
+      pickDate(toIso(new Date()));
+    }
+  });
+
+  datePicker.addEventListener('keydown', (e) => {
+    if (!datePickerOpen) return;
+    const dayButton = e.target.closest('[data-date]');
+    const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
+    if (dayButton && steps[e.key]) {
+      e.preventDefault();
+      const d = parseIso(dayButton.dataset.date);
+      d.setDate(d.getDate() + steps[e.key]);
+      moveDateFocus(toIso(d));
+    } else if (e.key === 'PageUp' || e.key === 'PageDown') {
+      e.preventDefault();
+      const d = parseIso(datePickerOpen.focus);
+      const target = new Date(d.getFullYear(), d.getMonth() + (e.key === 'PageDown' ? 1 : -1), 1);
+      // Keep the day, clamped to the target month's length (31 jan -> 28 feb).
+      const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+      target.setDate(Math.min(d.getDate(), last));
+      moveDateFocus(toIso(target));
+    } else if (e.key === 'Escape') {
+      // Escape must not also close the drawer behind the calendar.
+      e.stopPropagation();
+      e.preventDefault();
+      closeDatePicker(true);
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (datePickerOpen && !datePicker.contains(e.target) && !datePickerOpen.button.contains(e.target)) closeDatePicker();
+  });
+  document.addEventListener('scroll', (e) => { if (!datePicker.contains(e.target)) closeDatePicker(); }, true);
+  window.addEventListener('resize', () => closeDatePicker());
 
   function statusPill(statut) {
     return `<span class="pill pill-${statut.toLowerCase()}"><span class="dot dot-${statut.toLowerCase()}"></span>${STATUT_LABELS[statut]}</span>`;
@@ -1710,7 +1873,7 @@
       const li = document.createElement('li');
       li.className = 'session-row';
       li.innerHTML = `
-        <input type="date" class="se-date-input" value="${se.date}" aria-label="Date">
+        ${dateButtonHtml(se.date, 'aria-label="Date"')}
         <div class="input-group">
           <input type="number" class="se-heures-input" min="0.25" step="0.25" value="${se.heures}" aria-label="Heures">
           <span class="input-suffix">h</span>
@@ -1719,15 +1882,16 @@
       `;
 
       const saveSession = () => act(async () => {
-        const date = li.querySelector('.se-date-input').value;
+        const date = li.querySelector('.date-select').dataset.value;
         const heures = Number(li.querySelector('.se-heures-input').value);
         await api(`/api/projects/${projectId}/sessions/${se.id}`, { method: 'PUT', body: JSON.stringify({ date, heures }) });
         await loadData();
         renderSessionsInModal(projectId);
       });
-      li.querySelector('.se-date-input').addEventListener('change', saveSession);
+      const dateButton = li.querySelector('.date-select');
+      dateButton.addEventListener('click', () => toggleDatePicker(dateButton, saveSession));
       li.querySelector('.se-heures-input').addEventListener('change', saveSession);
-      li.querySelector('button').addEventListener('click', () => act(async () => {
+      li.querySelector('.danger').addEventListener('click', () => act(async () => {
         await api(`/api/projects/${projectId}/sessions/${se.id}`, { method: 'DELETE' });
         await loadData();
         renderSessionsInModal(projectId);
@@ -1747,15 +1911,17 @@
       <div><span>Écart</span><strong class="${hasEstimate(project) ? ecartClass(ecart) : ''}">${hasEstimate(project) ? formatEcart(ecart) : '–'}</strong></div>
     `;
 
-    if (!el('se-date').value) el('se-date').value = toIso(new Date());
+    if (!el('se-date').dataset.value) setDateButton(el('se-date'), toIso(new Date()));
     updateDrawerCounts(projectId);
   }
+
+  el('se-date').addEventListener('click', () => toggleDatePicker(el('se-date'), () => el('se-heures').focus()));
 
   el('session-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!state.editingProjectId) return;
     const projectId = state.editingProjectId;
-    const date = el('se-date').value;
+    const date = el('se-date').dataset.value;
     const heures = Number(el('se-heures').value);
     if (!date || !heures) return;
     await act(async () => {
