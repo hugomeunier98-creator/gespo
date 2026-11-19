@@ -276,7 +276,7 @@
         <div id="sessions-summary" class="time-summary"></div>
         <p class="hint">Ajoute une session de travail : date et nombre d'heures passées sur ce projet.</p>
         <form id="session-form" class="add-row">
-          <input type="date" id="se-date" required aria-label="Date">
+          <button type="button" id="se-date" class="date-select" data-value="" aria-haspopup="dialog" aria-expanded="false" aria-label="Date"><svg class="icon"><use href="#i-calendar"/></svg><span class="date-label"></span></button>
           <div class="input-group input-group-sm">
             <input type="number" id="se-heures" placeholder="Heures" min="0.25" step="0.25" required aria-label="Heures travaillees">
             <span class="input-suffix">h</span>

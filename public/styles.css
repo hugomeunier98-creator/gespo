@@ -240,6 +240,43 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .status-menu .status-check { margin-left: auto; width: 15px; height: 15px; color: var(--primary); visibility: hidden; }
 .status-menu button.selected .status-check { visibility: visible; }
 
+/* A date field: a button opening the date picker (app.js, toggleDatePicker) */
+.date-select {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; height: 36px; padding: 0 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
+  box-shadow: var(--shadow-sm); text-align: left; transition: border-color .15s, box-shadow .15s;
+}
+.date-select > .icon { flex: none; width: 15px; height: 15px; color: var(--text-3); }
+.date-select .date-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.date-select:hover { border-color: var(--text-3); }
+.date-select:focus-visible, .date-select[aria-expanded="true"] { outline: none; border-color: var(--primary); box-shadow: var(--focus); }
+.date-select[aria-expanded="true"] > .icon { color: var(--primary); }
+.date-menu {
+  position: fixed; z-index: 90; width: 272px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  animation: fade-in .12s ease;
+}
+.date-menu[hidden] { display: none; }
+.date-menu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.date-menu-title { font-size: 14px; }
+.date-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.date-dow { padding: 4px 0; text-align: center; font-size: 11px; font-weight: 600; color: var(--text-3); }
+.date-day {
+  height: 32px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text);
+  font-size: 13px; font-variant-numeric: tabular-nums;
+}
+.date-day:hover { background: var(--surface-2); }
+.date-day:focus-visible { outline: none; box-shadow: var(--focus); }
+.date-day.outside { color: var(--text-3); opacity: .6; }
+.date-day.today { color: var(--primary); font-weight: 700; box-shadow: inset 0 0 0 1px var(--primary); }
+.date-day.selected { background: var(--primary); color: #fff; font-weight: 600; }
+.date-menu-foot { display: flex; justify-content: center; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+.date-today {
+  height: 28px; padding: 0 12px; border: 0; border-radius: var(--radius-sm); background: transparent;
+  color: var(--primary); font-size: 13px; font-weight: 600;
+}
+.date-today:hover, .date-today:focus-visible { background: var(--primary-soft); outline: none; }
+
 .input-group { display: flex; }
 .input-group > input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
 .input-group > select, .input-group > .input-suffix {
@@ -510,7 +547,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .sessions-list:empty { display: none; }
 .session-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--surface); }
 .session-row + .session-row { border-top: 1px solid var(--border); }
-.session-row input[type="date"] { flex: 1; height: 32px; }
+.session-row .date-select { flex: 1; height: 32px; }
 .session-row .input-group { width: 120px; }
 .session-row .input-group input, .session-row .input-suffix { height: 32px; }
 .time-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
@@ -623,7 +660,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .danger-zone { display: flex; justify-content: space-between; gap: 8px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
 
 .add-row { display: flex; gap: 8px; margin-bottom: 8px; }
-.add-row > input[type="text"], .add-row > input[type="date"] { flex: 1; }
+.add-row > input[type="text"], .add-row > .date-select { flex: 1; }
 .add-row .input-group-sm { width: 128px; }
 .add-row .btn { width: 40px; padding: 0; }
 .hint { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; color: var(--text-3); font-size: 12px; margin-bottom: 14px; }
