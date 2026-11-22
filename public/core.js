@@ -209,6 +209,33 @@
     return entry(project, 'tache', action, s.nom, path.length ? [...details, `Dans : ${path.join(' › ')}`] : details);
   }
 
+  // A finished task only holds finished sub-tasks. An unfinished task puts
+  // its finished parents back to "En cours", up the whole chain...
+  function reopenAncestors(d, project, s, log) {
+    if (s.statut === 'TERMINE') return;
+    const seen = new Set([s.id]);
+    for (let cur = s; cur.parentId;) {
+      cur = d.subtasks.find((x) => x.id === cur.parentId && x.projetId === s.projetId);
+      if (!cur || seen.has(cur.id)) break;
+      seen.add(cur.id);
+      if (cur.statut !== 'TERMINE') continue;
+      cur.statut = 'EN_COURS';
+      if (project) log.push(taskEntry(d, project, cur, 'modification', [`Statut : ${LOG_STATUTS.TERMINE} → ${LOG_STATUTS.EN_COURS}`, `Sous-tâche non terminée : « ${short(s.nom)} »`]));
+    }
+  }
+
+  // ...and finishing a task finishes everything nested under it.
+  function finishDescendants(d, project, s, log) {
+    if (s.statut !== 'TERMINE') return;
+    const ids = subtreeIds(d.subtasks, s.id);
+    const finished = d.subtasks.filter((x) => ids.has(x.id) && x.id !== s.id && x.statut !== 'TERMINE');
+    finished.forEach((x) => { x.statut = 'TERMINE'; });
+    if (finished.length && project) {
+      const names = finished.slice(0, LOG_NAMES_MAX).map((x) => x.nom).join(', ') + (finished.length > LOG_NAMES_MAX ? ', …' : '');
+      log.push(taskEntry(d, project, s, 'modification', [`Terminées avec elle : ${plural(finished.length, 'sous-tâche')} (${names})`]));
+    }
+  }
+
   const sessionName = (se) => `${se.heures} h le ${frDate(se.date)}`;
   const findProject = (d, id) => d.projects.find((x) => x.id === id);
 
@@ -276,6 +303,7 @@
       d.subtasks.push(subtask);
       const estimate = duree(subtask.dureeJours, subtask.dureeUnite);
       log.push(taskEntry(d, project, subtask, 'ajout', estimate ? [`Durée estimée : ${estimate}`] : []));
+      reopenAncestors(d, project, subtask, log);
       return ok(201, subtask, d);
     }],
 
@@ -289,6 +317,10 @@
       const diff = changes(TASK_FIELDS, before, d.subtasks[idx]);
       const project = findProject(d, p.id);
       if (diff.length && project) log.push(taskEntry(d, project, d.subtasks[idx], 'modification', diff));
+      if (before.statut !== d.subtasks[idx].statut) {
+        reopenAncestors(d, project, d.subtasks[idx], log);
+        finishDescendants(d, project, d.subtasks[idx], log);
+      }
       return ok(200, d.subtasks[idx], d);
     }],
 
@@ -349,6 +381,8 @@
       }
       const project = findProject(d, p.id);
       if (moved && project) log.push(taskEntry(d, project, target, 'deplacement', [moved]));
+      // Placed under a finished task: that task isn't finished any more.
+      if (direction === 'indent' && moved) reopenAncestors(d, project, target, log);
       return ok(204, undefined, d);
     }],
 
