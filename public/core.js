@@ -236,6 +236,24 @@
     }
   }
 
+  // A task whose sub-tasks are all finished is finished too, up the chain
+  // from `parentId` (the parent of whatever just changed).
+  function finishAncestors(d, project, projetId, parentId, log) {
+    const seen = new Set();
+    for (let id = parentId; id && !seen.has(id);) {
+      seen.add(id);
+      const parent = d.subtasks.find((x) => x.id === id && x.projetId === projetId);
+      if (!parent) break;
+      const children = d.subtasks.filter((x) => x.projetId === projetId && x.parentId === parent.id);
+      if (!children.length || children.some((x) => x.statut !== 'TERMINE')) break;
+      if (parent.statut !== 'TERMINE') {
+        if (project) log.push(taskEntry(d, project, parent, 'modification', [`Statut : ${LOG_STATUTS[parent.statut]} → ${LOG_STATUTS.TERMINE}`, 'Toutes ses sous-tâches sont terminées']));
+        parent.statut = 'TERMINE';
+      }
+      id = parent.parentId;
+    }
+  }
+
   const sessionName = (se) => `${se.heures} h le ${frDate(se.date)}`;
   const findProject = (d, id) => d.projects.find((x) => x.id === id);
 
@@ -304,6 +322,7 @@
       const estimate = duree(subtask.dureeJours, subtask.dureeUnite);
       log.push(taskEntry(d, project, subtask, 'ajout', estimate ? [`Durée estimée : ${estimate}`] : []));
       reopenAncestors(d, project, subtask, log);
+      finishAncestors(d, project, p.id, parentId, log);
       return ok(201, subtask, d);
     }],
 
@@ -320,6 +339,7 @@
       if (before.statut !== d.subtasks[idx].statut) {
         reopenAncestors(d, project, d.subtasks[idx], log);
         finishDescendants(d, project, d.subtasks[idx], log);
+        finishAncestors(d, project, p.id, d.subtasks[idx].parentId, log);
       }
       return ok(200, d.subtasks[idx], d);
     }],
@@ -337,6 +357,8 @@
         log.push(taskEntry(d, project, target, 'suppression', nested.length ? [`Avec ${plural(nested.length, 'sous-tâche')} : ${names}`] : []));
       }
       d.subtasks = d.subtasks.filter((s) => !removed.has(s.id));
+      // The last unfinished sub-task may be the one just deleted.
+      finishAncestors(d, project, p.id, target.parentId, log);
       return ok(204, undefined, d);
     }],
 
@@ -383,6 +405,10 @@
       if (moved && project) log.push(taskEntry(d, project, target, 'deplacement', [moved]));
       // Placed under a finished task: that task isn't finished any more.
       if (direction === 'indent' && moved) reopenAncestors(d, project, target, log);
+      // Moved out, it may have been its old parent's last unfinished task;
+      // moved in finished, it may complete its new parent.
+      if (direction === 'outdent' && moved) finishAncestors(d, project, p.id, parentId, log);
+      if (direction === 'indent' && moved) finishAncestors(d, project, p.id, target.parentId, log);
       return ok(204, undefined, d);
     }],
 
