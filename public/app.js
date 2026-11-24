@@ -917,15 +917,22 @@
     });
   }
 
+  const SORT_LABELS = { priorite: 'Priorité, puis dernière modification', deadline: 'Échéance', nom: 'Nom' };
+
   function syncFilterControls() {
     setSegmented(el('filter-archive'), state.filterArchive);
     setSegmented(el('filter-statut'), state.filterStatut);
-    el('sort-by').value = state.sortBy;
+    el('sort-by').querySelector('.sort-label').textContent = SORT_LABELS[state.sortBy];
   }
 
   bindSegmented(el('filter-archive'), (v) => { state.filterArchive = v; savePrefs(); renderProjects(); });
   bindSegmented(el('filter-statut'), (v) => { state.filterStatut = v; savePrefs(); renderProjects(); });
-  el('sort-by').addEventListener('change', (e) => { state.sortBy = e.target.value; savePrefs(); renderProjects(); });
+  el('sort-by').addEventListener('click', () => toggleChoiceMenu(el('sort-by'), Object.entries(SORT_LABELS), state.sortBy, (sortBy) => {
+    state.sortBy = sortBy;
+    el('sort-by').querySelector('.sort-label').textContent = SORT_LABELS[sortBy];
+    savePrefs();
+    renderProjects();
+  }));
   el('search').addEventListener('input', (e) => { state.search = e.target.value.trim(); renderProjects(); });
   el('btn-reset-filters').addEventListener('click', () => {
     state.filterArchive = 'ACTIFS';

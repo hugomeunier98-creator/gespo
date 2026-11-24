@@ -99,13 +99,10 @@
           <button type="button" data-value="EN_COURS" class="chip"><span class="dot dot-en_cours"></span>En cours</button>
           <button type="button" data-value="TERMINE" class="chip"><span class="dot dot-termine"></span>Terminé</button>
         </div>
-        <label class="select-inline">Trier par
-          <select id="sort-by">
-            <option value="priorite">Priorité, puis dernière modification</option>
-            <option value="deadline">Échéance</option>
-            <option value="nom">Nom</option>
-          </select>
-        </label>
+        <div class="select-inline">
+          <span id="sort-by-label">Trier par</span>
+          <button type="button" id="sort-by" class="sort-select" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="sort-by-label sort-by"><span class="sort-label"></span><svg class="icon"><use href="#i-chevron-right"/></svg></button>
+        </div>
       </div>
     </div>
 

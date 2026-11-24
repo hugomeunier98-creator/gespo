@@ -240,16 +240,17 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .choice-menu .choice-check { margin-left: auto; width: 15px; height: 15px; color: var(--primary); visibility: hidden; }
 .choice-menu button.selected .choice-check { visibility: visible; }
 
-/* A duration unit: a button opening the choice menu (app.js, unitButtonHtml) */
-.unit-select {
+/* A duration unit or the project sort: a button opening the choice menu
+   (app.js, unitButtonHtml and SORT_LABELS) */
+.unit-select, .sort-select {
   display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; height: 36px; padding: 0 8px 0 10px;
   border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2);
   white-space: nowrap; transition: border-color .15s, box-shadow .15s, color .15s;
 }
-.unit-select > .icon { width: 12px; height: 12px; opacity: .6; transform: rotate(90deg); transition: transform .15s; }
-.unit-select[aria-expanded="true"] > .icon { transform: rotate(-90deg); }
-.unit-select:hover { color: var(--text); }
-.unit-select:focus-visible, .unit-select[aria-expanded="true"] {
+.unit-select > .icon, .sort-select > .icon { flex: none; width: 12px; height: 12px; opacity: .6; transform: rotate(90deg); transition: transform .15s; }
+.unit-select[aria-expanded="true"] > .icon, .sort-select[aria-expanded="true"] > .icon { transform: rotate(-90deg); }
+.unit-select:hover, .sort-select:hover { color: var(--text); }
+.unit-select:focus-visible, .unit-select[aria-expanded="true"], .sort-select:focus-visible, .sort-select[aria-expanded="true"] {
   position: relative; z-index: 1; outline: none; border-color: var(--primary); box-shadow: var(--focus); color: var(--text);
 }
 
@@ -366,6 +367,8 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .toolbar-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-left: auto; }
 .select-inline { display: inline-flex; align-items: center; gap: 8px; color: var(--text-3); font-size: 13px; }
 .select-inline select { height: 32px; }
+.sort-select { height: 32px; min-width: 0; gap: 8px; background: var(--surface); color: var(--text); font-size: 13px; box-shadow: var(--shadow-sm); }
+.sort-select .sort-label { overflow: hidden; text-overflow: ellipsis; }
 
 /* Panels */
 .panel {
