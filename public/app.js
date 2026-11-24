@@ -356,55 +356,56 @@
     popup.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - m.width - 8))}px`;
   }
 
-  const statusMenu = document.createElement('div');
-  statusMenu.className = 'status-menu';
-  statusMenu.setAttribute('role', 'listbox');
-  statusMenu.hidden = true;
-  statusMenu.innerHTML = STATUTS.map((v) => `<button type="button" role="option" data-value="${v}"><span class="dot dot-${v.toLowerCase()}"></span>${STATUT_LABELS[v]}${icon('check', 'status-check')}</button>`).join('');
-  document.body.appendChild(statusMenu);
-  let statusMenuOpen = null; // { button, onPick }
+  // ---------- Choice menu ----------
+  // One menu for every short list (task status, duration unit), drawn by Gespo
+  // rather than by the OS like a native <select>.
+  const choiceMenu = document.createElement('div');
+  choiceMenu.className = 'choice-menu';
+  choiceMenu.setAttribute('role', 'listbox');
+  choiceMenu.hidden = true;
+  document.body.appendChild(choiceMenu);
+  let choiceMenuOpen = null; // { button, current, onPick }
 
-  function closeStatusMenu(refocus = false) {
-    if (!statusMenuOpen) return;
-    const { button } = statusMenuOpen;
-    statusMenuOpen = null;
-    statusMenu.hidden = true;
+  function closeChoiceMenu(refocus = false) {
+    if (!choiceMenuOpen) return;
+    const { button } = choiceMenuOpen;
+    choiceMenuOpen = null;
+    choiceMenu.hidden = true;
     button.setAttribute('aria-expanded', 'false');
     if (refocus && button.isConnected) button.focus();
   }
 
-  // Opens the menu under `button` (above it when there's no room below);
-  // `onPick(statut)` runs when another status is chosen.
-  function toggleStatusMenu(button, onPick) {
-    if (statusMenuOpen && statusMenuOpen.button === button) {
-      closeStatusMenu();
+  // Opens the menu under `button` (above it when there's no room below) with
+  // `choices` as [value, html] pairs; `onPick(value)` runs when a value other
+  // than `current` is chosen.
+  function toggleChoiceMenu(button, choices, current, onPick) {
+    if (choiceMenuOpen && choiceMenuOpen.button === button) {
+      closeChoiceMenu();
       return;
     }
-    closeStatusMenu();
-    statusMenuOpen = { button, onPick };
-    statusMenu.querySelectorAll('[role="option"]').forEach((o) => {
-      const selected = o.dataset.value === button.dataset.statut;
-      o.classList.toggle('selected', selected);
-      o.setAttribute('aria-selected', String(selected));
-    });
-    statusMenu.hidden = false;
-    placePopup(statusMenu, button);
+    closeChoiceMenu();
+    closeDatePicker();
+    choiceMenuOpen = { button, current, onPick };
+    choiceMenu.innerHTML = choices.map(([value, html]) => {
+      const selected = value === current;
+      return `<button type="button" role="option" data-value="${value}" class="${selected ? 'selected' : ''}" aria-selected="${selected}">${html}${icon('check', 'choice-check')}</button>`;
+    }).join('');
+    choiceMenu.hidden = false;
+    placePopup(choiceMenu, button);
     button.setAttribute('aria-expanded', 'true');
-    statusMenu.querySelector('.selected').focus({ preventScroll: true });
+    (choiceMenu.querySelector('.selected') || choiceMenu.firstElementChild).focus({ preventScroll: true });
   }
 
-  statusMenu.addEventListener('click', (e) => {
+  choiceMenu.addEventListener('click', (e) => {
     const option = e.target.closest('[role="option"]');
-    if (!option || !statusMenuOpen) return;
-    const { button, onPick } = statusMenuOpen;
-    closeStatusMenu(true);
-    if (option.dataset.value === button.dataset.statut) return;
-    setStatusButton(button, option.dataset.value);
-    onPick(option.dataset.value);
+    if (!option || !choiceMenuOpen) return;
+    const { current, onPick } = choiceMenuOpen;
+    closeChoiceMenu(true);
+    if (option.dataset.value !== current) onPick(option.dataset.value);
   });
 
-  statusMenu.addEventListener('keydown', (e) => {
-    const options = [...statusMenu.querySelectorAll('[role="option"]')];
+  choiceMenu.addEventListener('keydown', (e) => {
+    const options = [...choiceMenu.querySelectorAll('[role="option"]')];
     const i = options.indexOf(document.activeElement);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
@@ -413,16 +414,50 @@
       // Escape must not also close the drawer behind the menu.
       e.stopPropagation();
       e.preventDefault();
-      closeStatusMenu(true);
+      closeChoiceMenu(true);
     }
   });
 
   document.addEventListener('click', (e) => {
-    if (statusMenuOpen && !statusMenu.contains(e.target) && !statusMenuOpen.button.contains(e.target)) closeStatusMenu();
+    if (choiceMenuOpen && !choiceMenu.contains(e.target) && !choiceMenuOpen.button.contains(e.target)) closeChoiceMenu();
   });
   // The menu is placed once: close it rather than leave it floating.
-  document.addEventListener('scroll', (e) => { if (!statusMenu.contains(e.target)) closeStatusMenu(); }, true);
-  window.addEventListener('resize', () => closeStatusMenu());
+  document.addEventListener('scroll', (e) => { if (!choiceMenu.contains(e.target)) closeChoiceMenu(); }, true);
+  window.addEventListener('resize', () => closeChoiceMenu());
+
+  // `onPick(statut)` runs once the button shows the new status.
+  function toggleStatusMenu(button, onPick) {
+    const choices = STATUTS.map((v) => [v, `<span class="dot dot-${v.toLowerCase()}"></span>${STATUT_LABELS[v]}`]);
+    toggleChoiceMenu(button, choices, button.dataset.statut, (statut) => {
+      setStatusButton(button, statut);
+      onPick(statut);
+    });
+  }
+
+  // ---------- Duration unit ----------
+  // A unit field is a button holding JOURS or HEURES in data-value; a compact
+  // one (data-short) shows "j" / "h". Picking fires a "change" event on it.
+  const UNITE_LABELS = { JOURS: 'jours', HEURES: 'heures' };
+
+  function unitButtonHtml(unite, extraClass = '', short = true) {
+    const u = unite || 'JOURS';
+    return `<button type="button" class="unit-select ${extraClass}" data-value="${u}" ${short ? 'data-short' : ''} aria-haspopup="listbox" aria-expanded="false" aria-label="Unité"><span class="unit-label">${short ? DUREE_UNITE_LABELS[u] : UNITE_LABELS[u]}</span>${icon('chevron-right')}</button>`;
+  }
+
+  function setUnitButton(button, unite) {
+    const u = unite || 'JOURS';
+    button.dataset.value = u;
+    button.querySelector('.unit-label').textContent = 'short' in button.dataset ? DUREE_UNITE_LABELS[u] : UNITE_LABELS[u];
+  }
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest('.unit-select');
+    if (!button) return;
+    toggleChoiceMenu(button, Object.entries(UNITE_LABELS), button.dataset.value, (unite) => {
+      setUnitButton(button, unite);
+      button.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+  });
 
   // ---------- Date picker ----------
   // Same reason as the status menu: the native date calendar is drawn by the
@@ -454,7 +489,7 @@
   // An empty date (a clearable field) shows the button's data-placeholder.
   function setDateButton(button, iso) {
     button.dataset.value = iso;
-    button.classList.toggle('empty', !iso);
+    button.classList.toggle('no-date', !iso);
     button.querySelector('.date-label').textContent = iso ? formatDateShort(iso) : button.dataset.placeholder || '';
   }
 
@@ -514,7 +549,7 @@
       return;
     }
     closeDatePicker();
-    closeStatusMenu();
+    closeChoiceMenu();
     const focus = button.dataset.value || toIso(new Date());
     const d = parseIso(focus);
     datePickerOpen = { button, onPick, focus, month: new Date(d.getFullYear(), d.getMonth(), 1) };
@@ -1551,7 +1586,7 @@
       el('f-depot').value = p.depot || '';
       setDateButton(el('f-deadline'), p.dateLimite || '');
       el('f-duree').value = p.dureeJours;
-      el('f-duree-unite').value = p.dureeUnite || 'JOURS';
+      setUnitButton(el('f-duree-unite'), p.dureeUnite);
       setSegmented(el('f-priorite'), p.priorite);
       setSegmented(el('f-statut'), p.statut);
       el('btn-save-project').textContent = 'Enregistrer les modifications';
@@ -1568,7 +1603,7 @@
       el('drawer-title').textContent = 'Créer un projet';
       setSegmented(el('f-priorite'), 'MOYENNE');
       setSegmented(el('f-statut'), 'A_FAIRE');
-      el('f-duree-unite').value = 'JOURS';
+      setUnitButton(el('f-duree-unite'), 'JOURS');
       el('btn-save-project').textContent = 'Créer le projet';
       el('danger-zone').hidden = true;
       el('drawer-tabs').hidden = true;
@@ -1630,7 +1665,7 @@
       priorite: segmentedValue(el('f-priorite')),
       statut: segmentedValue(el('f-statut')),
       dureeJours: el('f-duree').value === '' ? '' : Number(el('f-duree').value),
-      dureeUnite: el('f-duree-unite').value,
+      dureeUnite: el('f-duree-unite').dataset.value,
     };
   }
 
@@ -1723,10 +1758,7 @@
         <textarea class="ghost-input st-detail-input" rows="1" placeholder="Ajouter un détail..." aria-label="Détail"></textarea>
         <div class="task-duration" title="Durée estimée">
           <input type="number" class="st-duree" min="0.5" step="0.5" value="${s.dureeJours || ''}" placeholder="Durée" aria-label="Durée">
-          <select class="st-duree-unite" aria-label="Unité">
-            <option value="JOURS" ${(s.dureeUnite || 'JOURS') === 'JOURS' ? 'selected' : ''}>j</option>
-            <option value="HEURES" ${s.dureeUnite === 'HEURES' ? 'selected' : ''}>h</option>
-          </select>
+          ${unitButtonHtml(s.dureeUnite, 'st-duree-unite')}
         </div>
       </div>
     `;
@@ -1757,7 +1789,7 @@
     statusButton.addEventListener('click', () => toggleStatusMenu(statusButton, (statut) => update({ statut })));
     const saveDuree = () => {
       const rawVal = row.querySelector('.st-duree').value;
-      update({ dureeJours: rawVal === '' ? '' : Number(rawVal), dureeUnite: row.querySelector('.st-duree-unite').value });
+      update({ dureeJours: rawVal === '' ? '' : Number(rawVal), dureeUnite: row.querySelector('.st-duree-unite').dataset.value });
     };
     row.querySelector('.st-duree').addEventListener('change', saveDuree);
     row.querySelector('.st-duree-unite').addEventListener('change', saveDuree);
@@ -1808,10 +1840,7 @@
       <input type="text" class="stc-nom" placeholder="Sous-section de « ${escapeHtml(parent.nom)} »" required>
       <div class="input-group">
         <input type="number" class="stc-duree" placeholder="Durée" min="0.5" step="0.5" style="width:72px">
-        <select class="stc-duree-unite" aria-label="Unité">
-          <option value="JOURS" selected>j</option>
-          <option value="HEURES">h</option>
-        </select>
+        ${unitButtonHtml('JOURS', 'stc-duree-unite')}
       </div>
       <button type="submit" class="btn btn-primary">Ajouter</button>
       <button type="button" class="btn btn-ghost stc-cancel">Annuler</button>
@@ -1833,7 +1862,7 @@
             statut: 'A_FAIRE',
             parentId: parent.id,
             dureeJours: rawDuree === '' ? undefined : Number(rawDuree),
-            dureeUnite: form.querySelector('.stc-duree-unite').value,
+            dureeUnite: form.querySelector('.stc-duree-unite').dataset.value,
           }),
         });
         // Keep the form open on the same parent to chain several additions.
@@ -1858,7 +1887,7 @@
     const projectId = state.editingProjectId;
     const nom = el('st-nom').value.trim();
     const dureeJours = el('st-duree').value === '' ? undefined : Number(el('st-duree').value);
-    const dureeUnite = el('st-duree-unite').value;
+    const dureeUnite = el('st-duree-unite').dataset.value;
     if (!nom) return;
     await act(async () => {
       await api(`/api/projects/${projectId}/subtasks`, {
@@ -1867,7 +1896,7 @@
       });
       el('st-nom').value = '';
       el('st-duree').value = '';
-      el('st-duree-unite').value = 'JOURS';
+      setUnitButton(el('st-duree-unite'), 'JOURS');
       await refreshSubtasks(projectId);
       el('st-nom').focus();
     });

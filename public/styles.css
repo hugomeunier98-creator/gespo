@@ -213,7 +213,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .pill-archive { background: var(--surface-2); color: var(--text-3); border: 1px solid var(--border); }
 .pill .icon { width: 13px; height: 13px; }
 
-/* A task's status: a pill opening the status menu (app.js, toggleStatusMenu) */
+/* A task's status: a pill opening the choice menu (app.js, toggleStatusMenu) */
 .status-select {
   display: inline-flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 7px 0 9px;
   border: 0; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer;
@@ -225,20 +225,33 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .status-select.pill-a_faire { background: var(--st-todo-soft); color: var(--st-todo-fg); }
 .status-select.pill-en_cours { background: var(--st-doing-soft); color: var(--st-doing-fg); }
 .status-select.pill-termine { background: var(--st-done-soft); color: var(--st-done-fg); }
-.status-menu {
-  position: fixed; z-index: 90; min-width: 150px; padding: 4px; display: grid; gap: 2px;
+.choice-menu {
+  position: fixed; z-index: 90; min-width: 130px; padding: 4px; display: grid; gap: 2px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-lg);
   animation: fade-in .12s ease;
 }
-.status-menu[hidden] { display: none; }
-.status-menu button {
+.choice-menu[hidden] { display: none; }
+.choice-menu button {
   display: flex; align-items: center; gap: 9px; height: 32px; padding: 0 10px; border: 0; border-radius: var(--radius-sm);
   background: transparent; color: var(--text); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer;
 }
-.status-menu button:hover, .status-menu button:focus-visible { background: var(--surface-2); outline: none; }
-.status-menu button.selected { font-weight: 600; }
-.status-menu .status-check { margin-left: auto; width: 15px; height: 15px; color: var(--primary); visibility: hidden; }
-.status-menu button.selected .status-check { visibility: visible; }
+.choice-menu button:hover, .choice-menu button:focus-visible { background: var(--surface-2); outline: none; }
+.choice-menu button.selected { font-weight: 600; }
+.choice-menu .choice-check { margin-left: auto; width: 15px; height: 15px; color: var(--primary); visibility: hidden; }
+.choice-menu button.selected .choice-check { visibility: visible; }
+
+/* A duration unit: a button opening the choice menu (app.js, unitButtonHtml) */
+.unit-select {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; height: 36px; padding: 0 8px 0 10px;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); color: var(--text-2);
+  white-space: nowrap; transition: border-color .15s, box-shadow .15s, color .15s;
+}
+.unit-select > .icon { width: 12px; height: 12px; opacity: .6; transform: rotate(90deg); transition: transform .15s; }
+.unit-select[aria-expanded="true"] > .icon { transform: rotate(-90deg); }
+.unit-select:hover { color: var(--text); }
+.unit-select:focus-visible, .unit-select[aria-expanded="true"] {
+  position: relative; z-index: 1; outline: none; border-color: var(--primary); box-shadow: var(--focus); color: var(--text);
+}
 
 /* A date field: a button opening the date picker (app.js, toggleDatePicker) */
 .date-select {
@@ -248,7 +261,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 }
 .date-select > .icon { flex: none; width: 15px; height: 15px; color: var(--text-3); }
 .date-select .date-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.date-select.empty .date-label { color: var(--text-3); }
+.date-select.no-date .date-label { color: var(--text-3); }
 .date-select:hover { border-color: var(--text-3); }
 .date-select:focus-visible, .date-select[aria-expanded="true"] { outline: none; border-color: var(--primary); box-shadow: var(--focus); }
 .date-select[aria-expanded="true"] > .icon { color: var(--primary); }
@@ -286,7 +299,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 
 .input-group { display: flex; }
 .input-group > input { flex: 1; border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.input-group > select, .input-group > .input-suffix {
+.input-group > .unit-select, .input-group > .input-suffix {
   flex: none; border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; background-color: var(--surface-2);
 }
 .input-suffix {
@@ -515,11 +528,8 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
 .ghost-input:hover { border-color: var(--border-strong) !important; background: color-mix(in srgb, var(--surface) 60%, transparent) !important; }
 .ghost-input:focus { border-color: var(--primary) !important; background: var(--surface) !important; box-shadow: var(--focus) !important; }
 .task-duration { display: flex; align-items: center; }
-.task-duration input, .task-duration select {
-  height: 26px; font-size: 12px; padding: 0 6px; box-shadow: none; background: var(--surface);
-}
-.task-duration input { width: 68px; border-radius: 5px 0 0 5px; }
-.task-duration select { width: 46px; border-radius: 0 5px 5px 0; margin-left: -1px; padding-right: 2px; }
+.task-duration input { height: 26px; width: 68px; font-size: 12px; padding: 0 6px; box-shadow: none; background: var(--surface); border-radius: 5px 0 0 5px; }
+.task-duration .unit-select { height: 26px; gap: 3px; padding: 0 5px 0 8px; font-size: 12px; background: var(--surface); border-radius: 0 5px 5px 0; margin-left: -1px; }
 .task-actions { display: flex; align-items: center; gap: 1px; margin-left: auto; opacity: .55; transition: opacity .15s; }
 .task-bar:hover .task-actions, .task-bar:focus-within .task-actions { opacity: 1; }
 .task-actions .sep { width: 1px; height: 16px; background: var(--border-strong); margin: 0 3px; }
@@ -529,7 +539,7 @@ input::placeholder, textarea::placeholder { color: var(--text-3); opacity: .8; }
   border-radius: 8px; background: var(--surface);
 }
 .add-child-form input[type="text"] { flex: 1 1 180px; height: 32px; }
-.add-child-form .input-group input, .add-child-form .input-group select { height: 32px; }
+.add-child-form .input-group input, .add-child-form .input-group .unit-select { height: 32px; }
 .add-child-form .btn { height: 32px; }
 
 /* ==========================================================================

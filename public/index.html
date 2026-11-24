@@ -200,10 +200,7 @@
               <label for="f-duree">Durée estimée <span class="optional">facultatif</span></label>
               <div class="input-group">
                 <input type="number" id="f-duree" min="0.5" step="0.5" placeholder="–">
-                <select id="f-duree-unite" aria-label="Unite">
-                  <option value="JOURS" selected>jours</option>
-                  <option value="HEURES">heures</option>
-                </select>
+                <button type="button" id="f-duree-unite" class="unit-select" data-value="JOURS" aria-haspopup="listbox" aria-expanded="false" aria-label="Unité"><span class="unit-label">jours</span><svg class="icon"><use href="#i-chevron-right"/></svg></button>
               </div>
             </div>
           </div>
@@ -241,10 +238,7 @@
           <input type="text" id="st-nom" placeholder="Ajouter une tâche..." required aria-label="Nom de la tache">
           <div class="input-group input-group-sm">
             <input type="number" id="st-duree" placeholder="Durée" min="0.5" step="0.5" aria-label="Duree">
-            <select id="st-duree-unite" aria-label="Unite">
-              <option value="JOURS" selected>j</option>
-              <option value="HEURES">h</option>
-            </select>
+            <button type="button" id="st-duree-unite" class="unit-select" data-value="JOURS" data-short aria-haspopup="listbox" aria-expanded="false" aria-label="Unité"><span class="unit-label">j</span><svg class="icon"><use href="#i-chevron-right"/></svg></button>
           </div>
           <button type="submit" class="btn btn-primary" aria-label="Ajouter la tache"><svg class="icon"><use href="#i-plus"/></svg></button>
         </form>
