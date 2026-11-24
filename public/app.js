@@ -451,9 +451,11 @@
     return `<button type="button" class="date-select" data-value="${iso}" aria-haspopup="dialog" aria-expanded="false" ${attrs}>${icon('calendar')}<span class="date-label">${formatDateShort(iso)}</span></button>`;
   }
 
+  // An empty date (a clearable field) shows the button's data-placeholder.
   function setDateButton(button, iso) {
     button.dataset.value = iso;
-    button.querySelector('.date-label').textContent = formatDateShort(iso);
+    button.classList.toggle('empty', !iso);
+    button.querySelector('.date-label').textContent = iso ? formatDateShort(iso) : button.dataset.placeholder || '';
   }
 
   const datePicker = document.createElement('div');
@@ -468,7 +470,10 @@
       <button type="button" class="btn-icon sm" data-nav="1" aria-label="Mois suivant">${icon('chevron-right')}</button>
     </div>
     <div class="date-grid"></div>
-    <div class="date-menu-foot"><button type="button" class="date-today">Aujourd'hui</button></div>`;
+    <div class="date-menu-foot">
+      <button type="button" class="date-clear">Effacer</button>
+      <button type="button" class="date-today">Aujourd'hui</button>
+    </div>`;
   document.body.appendChild(datePicker);
   let datePickerOpen = null; // { button, onPick, month, focus }
 
@@ -513,6 +518,8 @@
     const focus = button.dataset.value || toIso(new Date());
     const d = parseIso(focus);
     datePickerOpen = { button, onPick, focus, month: new Date(d.getFullYear(), d.getMonth(), 1) };
+    // Only a field marked data-clearable can go back to no date.
+    datePicker.querySelector('.date-clear').hidden = !('clearable' in button.dataset && button.dataset.value);
     datePicker.hidden = false;
     renderDatePicker();
     placePopup(datePicker, button);
@@ -547,6 +554,8 @@
       pickDate(dayButton.dataset.date);
     } else if (e.target.closest('.date-today')) {
       pickDate(toIso(new Date()));
+    } else if (e.target.closest('.date-clear')) {
+      pickDate('');
     }
   });
 
@@ -1529,6 +1538,7 @@
     state.addingChildOf = null;
     el('form-errors').hidden = true;
     el('project-form').reset();
+    setDateButton(el('f-deadline'), '');
 
     if (mode === 'edit') {
       const p = state.projects.find((x) => x.id === projectId);
@@ -1539,7 +1549,7 @@
       el('f-description').value = p.description || '';
       el('f-dossier').value = p.dossier || '';
       el('f-depot').value = p.depot || '';
-      el('f-deadline').value = p.dateLimite;
+      setDateButton(el('f-deadline'), p.dateLimite || '');
       el('f-duree').value = p.dureeJours;
       el('f-duree-unite').value = p.dureeUnite || 'JOURS';
       setSegmented(el('f-priorite'), p.priorite);
@@ -1616,7 +1626,7 @@
       description: el('f-description').value,
       dossier: el('f-dossier').value,
       depot: el('f-depot').value,
-      dateLimite: el('f-deadline').value,
+      dateLimite: el('f-deadline').dataset.value,
       priorite: segmentedValue(el('f-priorite')),
       statut: segmentedValue(el('f-statut')),
       dureeJours: el('f-duree').value === '' ? '' : Number(el('f-duree').value),
@@ -1916,6 +1926,8 @@
   }
 
   el('se-date').addEventListener('click', () => toggleDatePicker(el('se-date'), () => el('se-heures').focus()));
+
+  el('f-deadline').addEventListener('click', () => toggleDatePicker(el('f-deadline'), () => {}));
 
   el('session-form').addEventListener('submit', async (e) => {
     e.preventDefault();
