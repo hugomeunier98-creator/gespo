@@ -1411,7 +1411,7 @@
   // Builds a journal inside `root`: for the project `projectIdOf()` gives, or
   // without it for every project (then a project filter is offered).
   function createJournalView(root, projectIdOf = null) {
-    const view = { month: firstOfThisMonth(), type: '', project: '', entries: [], notices: [], loading: false };
+    const view = { month: firstOfThisMonth(), type: '', project: '', projects: [], entries: [], notices: [], loading: false };
     const global = !projectIdOf;
     const scope = () => (projectIdOf ? projectIdOf() : '');
     let loads = 0;
@@ -1431,7 +1431,7 @@
           <button type="button" data-value="gespo" class="chip">${icon('folder')}Projets</button>
           <button type="button" data-value="code" class="chip">${icon('code')}Code</button>
         </div>
-        ${global ? '<label class="select-inline">Projet <select class="journal-project-filter"></select></label>' : ''}
+        ${global ? `<div class="select-inline">Projet <button type="button" class="sort-select journal-project-filter" aria-haspopup="listbox" aria-expanded="false" aria-label="Projet"><span class="sort-label"></span>${icon('chevron-right')}</button></div>` : ''}
       </div>
       <ul class="journal-notices"></ul>
       <div class="journal-list"></div>
@@ -1443,11 +1443,13 @@
       $('.journal-next').disabled = view.month >= firstOfThisMonth();
       $('.journal-notices').innerHTML = view.notices.map((n) => `<li>${icon('alert')}<span>${escapeHtml(n)}</span></li>`).join('');
       if (global) {
-        const select = $('.journal-project-filter');
-        const names = [...new Map([...state.projects, ...view.entries.map((e) => ({ id: e.projetId, nom: e.projet }))]
+        // Current projects plus the deleted ones still named in this month.
+        view.projects = [...new Map([...state.projects, ...view.entries.map((e) => ({ id: e.projetId, nom: e.projet }))]
           .map((p) => [p.id, p.nom])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-        select.innerHTML = `<option value="">Tous les projets</option>${names.map(([id, nom]) => `<option value="${escapeHtml(id)}">${escapeHtml(nom)}</option>`).join('')}`;
-        select.value = names.some(([id]) => id === view.project) ? view.project : '';
+        if (!view.projects.some(([id]) => id === view.project)) view.project = '';
+        $('.journal-project-filter .sort-label').textContent = view.project
+          ? view.projects.find(([id]) => id === view.project)[1]
+          : 'Tous les projets';
       }
 
       const list = $('.journal-list');
@@ -1521,9 +1523,13 @@
       render();
     });
     if (global) {
-      $('.journal-project-filter').addEventListener('change', (e) => {
-        view.project = e.target.value;
-        render();
+      const filter = $('.journal-project-filter');
+      filter.addEventListener('click', () => {
+        const choices = [['', 'Tous les projets'], ...view.projects.map(([id, nom]) => [escapeHtml(id), escapeHtml(nom)])];
+        toggleChoiceMenu(filter, choices, view.project, (project) => {
+          view.project = project;
+          render();
+        });
       });
     }
     return {
